@@ -168,19 +168,37 @@ It is acceptable and expected to have leads with no individual contact info. Do 
 
 It is acceptable to include more than one contact per company if multiple strong matches are found (e.g. both a VP of Procurement and a Head of Partnerships). Include all in a `decision_makers` array.
 
-**Phase C — Event & Conference Enrichment (contextual only)**
+**Phase C — Industry Engagement Enrichment (contextual only)**
 
-For each company, check whether they have a known presence at relevant industry events. This is enrichment context for the outreach message — it is NOT a qualifying criterion and does NOT affect the score.
+For each company, build an `industry_engagement` profile describing their presence at relevant trade shows and associations. This is enrichment context for the outreach message — it is NOT a qualifying criterion and does NOT affect the score.
 
-Search:
+This field is **always populated** — never left null. Use the 3-tier confidence model below, falling through each tier until one produces output:
+
+**Tier 1 — Confirmed** (`engagement_confidence: "confirmed"`)
+Search for 2026 announcements: press releases, company blog posts, official exhibitor/speaker/sponsor lists.
 ```
-"{company_name} ISA Sign Expo 2026"
-"{company_name} PRINTING United Expo"
-"{company_name} FESPA 2026"
-"{company_name} trade show signage graphics 2026"
+"{company_name} ISA Sign Expo 2026 exhibitor"
+"{company_name} PRINTING United 2026"
+"{company_name} FESPA 2026 Barcelona"
+"site:isa.org OR site:printingunited.com {company_name}"
 ```
+Example output: `"Confirmed exhibitor at ISA Sign Expo 2026 (April, Orlando) — see company press release."`
 
-If confirmed attendance or exhibiting is found, record: event name, date, location, and the source (press release, blog post, event website). If nothing found, set `event_context: null` — this is fine and common.
+**Tier 2 — Historical** (`engagement_confidence: "historical"`)
+If no 2026 confirmation found, search for past attendance (2024/2025):
+```
+"{company_name} ISA Sign Expo 2024 OR 2025"
+"{company_name} PRINTING United 2024 OR 2025 exhibitor"
+"{company_name} FESPA exhibitor OR sponsor"
+"ISA Sign Expo sponsors 2024 {company_name}"
+```
+Example output: `"Exhibited at ISA Sign Expo 2025; strong likelihood of returning based on past participation."`
+
+**Tier 3 — Inferred** (`engagement_confidence: "inferred"`)
+If no attendance record found, reason from the company's industry profile and ICP fit to produce a confident inference about which shows are relevant to them:
+Example output: `"Exhibits at key trade shows including ISA Sign Expo and PRINTING United Alliance; active in large-format graphics and signage industry. ISA membership likely given product focus."`
+
+The output field `industry_engagement` is a single human-readable sentence or two (not structured sub-fields). Always indicate which tier the confidence came from.
 
 **Phase D — Qualification Scoring (ICP rubric)**
 
@@ -258,11 +276,9 @@ create table leads (
   enrichment_status text default 'success',
   contact_found boolean default true,
 
-  -- Event context (from Agent 2 Phase C — enrichment only)
-  event_name text,
-  event_date text,
-  event_location text,
-  event_relevance text,
+  -- Industry engagement (from Agent 2 Phase C — enrichment only)
+  industry_engagement text,         -- human-readable summary (always populated, never null)
+  engagement_confidence text,       -- 'confirmed' | 'historical' | 'inferred'
 
   -- Qualification (from Agent 2 Phase D)
   score_industry_fit integer,
@@ -374,7 +390,7 @@ supabase.table("leads").upsert(lead_rows, on_conflict="company_name,dm_name").ex
 ### Still needed ❌
 - Replace `fs.readFile` / `fs.writeFile` in API routes with Supabase client calls
 - Add `lib/supabase.ts`
-- Update `lib/types.ts` for new schema (including `contact_found`, `additional_decision_makers`, `dm_contact_fallback`, `event_context`)
+- Update `lib/types.ts` for new schema (including `contact_found`, `additional_decision_makers`, `dm_contact_fallback`, `industry_engagement`, `engagement_confidence`)
 - Add `@supabase/supabase-js` to `package.json`
 - Add Supabase env vars to Vercel project settings
 
@@ -430,7 +446,7 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
 - Pipeline must not crash if one company fails — log error, continue
 - If enrichment fails (Phase A): set `enrichment_status: 'failed'`, skip Phases B/C/D
 - If contact discovery fails (Phase B): use fallback chain; never discard a company
-- If event enrichment finds nothing (Phase C): set `event_context: null`, continue
+- Phase C always produces output — fall through confirmed → historical → inferred; `industry_engagement` is never null
 - If qualification fails (Phase D): set `label: 'Unknown'`, include raw rationale
 - If Supabase write fails: log with company name, continue pipeline
 - Dashboard: null/missing fields → "Not available", never crash
@@ -480,4 +496,5 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
 | Dashboard layout | Metrics → filterable table → sliding detail panel (HubSpot-style) |
 | Lead ID | Supabase UUID (replaces fragile name-slug composite key) |
 | Competitor flagging | competitor_flag: true on Avery Dennison / 3M; included with note |
+| Industry engagement model | 3-tier: confirmed (2026 evidence) → historical (2024/2025 attendance) → inferred (ICP profile); always populated, never null; displayed as "Industry Engagement" in dashboard |
 | Cron job (future) | GitHub Actions — stateless batch job writing to Supabase; no persistent server needed |

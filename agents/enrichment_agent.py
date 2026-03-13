@@ -134,13 +134,22 @@ def run_enrichment(research_results: Dict) -> List[Dict]:
             enriched_company = enrich_company(client, exa_client, normalized_company, model=model)
 
             if enriched_company['enrichment_status'] != 'success':
-                print(f"  ✗ Enrichment failed, skipping qualification")
-                lead = build_lead_object(normalized_company, enriched_company, None, None)
+                print(f"  ✗ Enrichment failed, skipping remaining phases")
+                # Still provide fallback industry engagement even if enrichment failed
+                industry_engagement = {
+                    "summary": "Industry engagement data unavailable due to enrichment failure.",
+                    "confidence": "inferred"
+                }
+                lead = build_lead_object(normalized_company, enriched_company, None, None, industry_engagement)
                 enriched_leads.append(lead)
                 continue
 
-            # Phase B: Qualify
-            print("  Phase B: Scoring against ICP rubric...")
+            # Phase B: Industry Engagement (contextual only, does not affect score)
+            print("  Phase B: Enriching industry engagement...")
+            industry_engagement = enrich_industry_engagement(client, exa_client, enriched_company, model=model)
+
+            # Phase C: Qualification Scoring
+            print("  Phase C: Scoring against ICP rubric...")
             qualification = qualify_company(client, enriched_company, model=model)
 
             # Check for competitor flag
@@ -155,7 +164,8 @@ def run_enrichment(research_results: Dict) -> List[Dict]:
                 normalized_company,
                 enriched_company,
                 qualification,
-                enriched_company.get('decision_maker')
+                enriched_company.get('decision_maker'),
+                industry_engagement
             )
 
             enriched_leads.append(lead)
@@ -167,9 +177,12 @@ def run_enrichment(research_results: Dict) -> List[Dict]:
 
         except Exception as e:
             print(f"  ✗ Error processing {normalized_company['name']}: {e}")
-            # Add failed lead with minimal data
+            # Add failed lead with minimal data and fallback industry engagement
             lead = {
-                "event": normalized_company.get('event', {}),
+                "industry_engagement": {
+                    "summary": "Industry engagement data unavailable due to processing error.",
+                    "confidence": "inferred"
+                },
                 "company": {
                     "name": normalized_company['name'],
                     "website": normalized_company.get('website', ''),
@@ -454,6 +467,163 @@ Be objective and precise. Consider the data provided."""
         }
 
 
+def enrich_industry_engagement(client: Anthropic, exa_client: ExaClient, company: Dict, *, model: str) -> Dict:
+    """
+    Phase C: Industry Engagement Enrichment with 3-tier confidence model.
+
+    ALWAYS returns populated data (never null). Falls through tiers until successful:
+    - Tier 1 (Confirmed): 2026 announcements, press releases, exhibitor lists
+    - Tier 2 (Historical): 2024/2025 past attendance
+    - Tier 3 (Inferred): Reason from ICP fit to infer likely shows
+
+    Args:
+        client: Anthropic client
+        exa_client: Exa API client
+        company: Enriched company dict with name, description, ICP fit
+        model: Anthropic model ID
+
+    Returns:
+        Dict with {summary: str, confidence: str}
+    """
+    company_name = company.get('name', 'Unknown')
+
+    # Tier 1: Search for 2026 confirmed attendance
+    print("    → Tier 1: Searching for 2026 confirmed attendance...")
+    tier1_queries = [
+        f"{company_name} ISA Sign Expo 2026 exhibitor Orlando",
+        f"{company_name} PRINTING United 2026 Las Vegas exhibitor",
+        f"{company_name} FESPA 2026 Barcelona exhibitor",
+        f"site:isa.org OR site:printingunited.com {company_name} 2026",
+    ]
+
+    tier1_results = []
+    for query in tier1_queries:
+        results = exa_client.search(query, num_results=2, type="neural")
+        tier1_results.extend(results)
+
+    # Tier 2: Search for 2024/2025 historical attendance
+    print("    → Tier 2: Searching for 2024/2025 historical attendance...")
+    tier2_queries = [
+        f"{company_name} ISA Sign Expo 2024 OR 2025 exhibitor",
+        f"{company_name} PRINTING United 2024 OR 2025 exhibitor",
+        f"{company_name} FESPA 2024 OR 2025 exhibitor sponsor",
+        f"ISA Sign Expo sponsors 2024 {company_name}",
+    ]
+
+    tier2_results = []
+    for query in tier2_queries:
+        results = exa_client.search(query, num_results=2, type="neural")
+        tier2_results.extend(results)
+
+    # Format search results for Claude
+    tier1_context = "\n---\n".join([
+        f"Title: {r['title']}\nURL: {r['url']}\nContent: {r['text'][:200]}"
+        for r in tier1_results[:5]
+    ]) if tier1_results else "No results found"
+
+    tier2_context = "\n---\n".join([
+        f"Title: {r['title']}\nURL: {r['url']}\nContent: {r['text'][:200]}"
+        for r in tier2_results[:5]
+    ]) if tier2_results else "No results found"
+
+    # Company description for Tier 3 inference
+    company_description = company.get('description', 'No description available')
+
+    prompt = f"""You are enriching industry engagement context for a lead in the graphics and signage industry.
+
+Company: {company_name}
+Company Description: {company_description}
+
+**Your task:** Build an industry engagement profile using the 3-tier confidence model below. Fall through each tier until one produces a result.
+
+**TIER 1 — CONFIRMED (2026 evidence)**
+Search results for 2026 attendance:
+{tier1_context}
+
+If you find evidence of 2026 exhibiting, sponsoring, or speaking at ISA Sign Expo, PRINTING United, or FESPA, return:
+- confidence: "confirmed"
+- summary: 1-2 sentences describing the confirmed attendance (mention event name, role, source)
+
+**TIER 2 — HISTORICAL (2024/2025 attendance)**
+Search results for 2024/2025 attendance:
+{tier2_context}
+
+If NO 2026 evidence found but you find 2024/2025 attendance, return:
+- confidence: "historical"
+- summary: 1-2 sentences describing past attendance and likelihood of returning
+
+**TIER 3 — INFERRED (ICP-based reasoning)**
+If NO confirmed or historical evidence found, use the company description to INFER which trade shows are relevant:
+- confidence: "inferred"
+- summary: 1-2 sentences describing likely trade show engagement based on their industry focus
+
+**Key trade shows for reference:**
+- ISA Sign Expo (April 2026, Orlando) — largest sign/graphics trade show in North America
+- PRINTING United Expo (September 2026, Las Vegas) — large-format printing and graphics
+- FESPA Global Print Expo (May 2026, Barcelona) — international printing and graphics
+- SEGD — Society for Experiential Graphic Design
+
+**CRITICAL:** You MUST return output for one of the three tiers. Fall through until successful. Never return null.
+
+Return ONLY JSON:
+{{
+  "confidence": "confirmed" | "historical" | "inferred",
+  "summary": "1-2 sentence human-readable summary here"
+}}"""
+
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=500,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        # Extract JSON from response
+        result_text = ""
+        for block in response.content:
+            if block.type == "text":
+                result_text += block.text
+
+        import json
+
+        # Remove markdown code blocks if present
+        if result_text.strip().startswith("```json"):
+            result_text = result_text.replace("```json", "").replace("```", "").strip()
+        elif result_text.strip().startswith("```"):
+            result_text = result_text.replace("```", "").strip()
+
+        start_idx = result_text.find('{')
+        end_idx = result_text.rfind('}') + 1
+
+        if start_idx >= 0 and end_idx > start_idx:
+            json_str = result_text[start_idx:end_idx]
+            data = json.loads(json_str)
+
+            confidence = data.get('confidence', 'inferred')
+            summary = data.get('summary', '')
+
+            if not summary:
+                # Fallback to Tier 3 if empty
+                summary = f"Active in graphics and signage industry; likely participates in major trade shows including ISA Sign Expo and PRINTING United based on product focus."
+                confidence = "inferred"
+
+            print(f"    ✓ Industry engagement: {confidence}")
+            return {
+                "summary": summary,
+                "confidence": confidence
+            }
+        else:
+            raise ValueError("No JSON found in response")
+
+    except Exception as e:
+        print(f"    ⚠ Industry engagement enrichment error: {e}, using fallback")
+        # Tier 3 fallback - always return something
+        return {
+            "summary": f"Active in graphics and signage industry; likely participates in major trade shows including ISA Sign Expo and PRINTING United based on company profile.",
+            "confidence": "inferred"
+        }
+
+
 def is_competitor(company_name: str) -> bool:
     """Check if company is a known competitor."""
     return any(comp.lower() in company_name.lower() for comp in COMPETITORS)
@@ -463,7 +633,8 @@ def build_lead_object(
     company_data: Dict,
     enriched_company: Dict,
     qualification: Dict,
-    decision_maker: Dict
+    decision_maker: Dict,
+    industry_engagement: Dict
 ) -> Dict:
     """
     Build the complete lead object matching the schema.
@@ -473,12 +644,13 @@ def build_lead_object(
         enriched_company: Enriched company info
         qualification: Qualification scores
         decision_maker: Decision maker info
+        industry_engagement: Industry engagement with confidence level
 
     Returns:
         Complete lead dict
     """
     return {
-        "event": company_data.get('event', {}),
+        "industry_engagement": industry_engagement,
         "company": {
             "name": enriched_company.get('name', company_data['name']),
             "website": enriched_company.get('website', ''),

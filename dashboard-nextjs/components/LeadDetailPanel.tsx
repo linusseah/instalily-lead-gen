@@ -282,27 +282,33 @@ export function LeadDetailPanel({ lead, isOpen, onClose, onUpdate }: LeadDetailP
             )}
           </section>
 
-          {/* Event Info */}
+          {/* Industry Engagement */}
           <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Event Source</h3>
-            <div className="space-y-2">
-              <div>
-                <div className="text-xs text-gray-500">Event Name</div>
-                <div className="text-sm text-gray-900">
-                  {lead.event.name === "N/A" || lead.event.name === "Industry Research"
-                    ? "N/A"
-                    : lead.event.name}
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">Industry Engagement</h3>
+            {lead.industry_engagement ? (
+              <div className="space-y-2">
+                <Badge
+                  className={
+                    lead.industry_engagement.confidence === "confirmed"
+                      ? "bg-green-100 text-green-800 border-green-200"
+                      : lead.industry_engagement.confidence === "historical"
+                      ? "bg-blue-100 text-blue-800 border-blue-200"
+                      : "bg-gray-100 text-gray-600 border-gray-200"
+                  }
+                >
+                  {lead.industry_engagement.confidence === "confirmed"
+                    ? "Confirmed"
+                    : lead.industry_engagement.confidence === "historical"
+                    ? "Historical"
+                    : "Inferred"}
+                </Badge>
+                <div className="text-sm text-gray-700 leading-relaxed">
+                  {lead.industry_engagement.summary}
                 </div>
               </div>
-              <div>
-                <div className="text-xs text-gray-500">Date & Location</div>
-                <div className="text-sm text-gray-900">
-                  {lead.event.name === "N/A" || lead.event.name === "Industry Research"
-                    ? "N/A"
-                    : `${lead.event.date} • ${lead.event.location}`}
-                </div>
-              </div>
-            </div>
+            ) : (
+              <div className="text-sm text-gray-500">Not available</div>
+            )}
           </section>
 
           {/* Outreach Message */}

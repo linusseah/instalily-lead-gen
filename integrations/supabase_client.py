@@ -79,7 +79,7 @@ class SupabaseClient:
         # Extract searchable fields for denormalization
         company = lead_data.get("company", {})
         decision_maker = lead_data.get("decision_maker") or {}
-        event = lead_data.get("event", {})
+        industry_engagement = lead_data.get("industry_engagement") or {}
         qualification = lead_data.get("qualification", {})
         crm_data = lead_data.get("crm_data", {})
 
@@ -94,9 +94,9 @@ class SupabaseClient:
             "decision_maker_email": decision_maker.get("email"),
             "decision_maker_phone": decision_maker.get("phone"),
 
-            "event_name": event.get("name"),
-            "event_date": event.get("date"),
-            "event_location": event.get("location"),
+            # Industry engagement (new schema)
+            "industry_engagement": industry_engagement.get("summary"),
+            "engagement_confidence": industry_engagement.get("confidence"),
 
             "qualification_score": int(qualification.get("weighted_total")) if qualification.get("weighted_total") else None,
             "qualification_label": qualification.get("label"),
@@ -111,7 +111,6 @@ class SupabaseClient:
             "company_data": company,
             "qualification_data": qualification,
             "outreach_data": lead_data.get("outreach"),
-            "event_data": event,
             "decision_maker_data": decision_maker,
         }
 
@@ -133,7 +132,7 @@ class SupabaseClient:
         for lead_data in leads:
             company = lead_data.get("company", {})
             decision_maker = lead_data.get("decision_maker") or {}
-            event = lead_data.get("event", {})
+            industry_engagement = lead_data.get("industry_engagement") or {}
             qualification = lead_data.get("qualification", {})
             crm_data = lead_data.get("crm_data", {})
 
@@ -145,9 +144,9 @@ class SupabaseClient:
                 "decision_maker_linkedin": decision_maker.get("linkedin"),
                 "decision_maker_email": decision_maker.get("email"),
                 "decision_maker_phone": decision_maker.get("phone"),
-                "event_name": event.get("name"),
-                "event_date": event.get("date"),
-                "event_location": event.get("location"),
+                # Industry engagement (new schema)
+                "industry_engagement": industry_engagement.get("summary"),
+                "engagement_confidence": industry_engagement.get("confidence"),
                 "qualification_score": int(qualification.get("weighted_total")) if qualification.get("weighted_total") else None,
                 "qualification_label": qualification.get("label"),
                 "lead_status": crm_data.get("lead_status", "Open"),
@@ -157,7 +156,6 @@ class SupabaseClient:
                 "company_data": company,
                 "qualification_data": qualification,
                 "outreach_data": lead_data.get("outreach"),
-                "event_data": event,
                 "decision_maker_data": decision_maker,
             })
 
@@ -180,7 +178,10 @@ class SupabaseClient:
                 "id": row["id"],
                 "company": row["company_data"],
                 "decision_maker": row["decision_maker_data"],
-                "event": row["event_data"],
+                "industry_engagement": {
+                    "summary": row.get("industry_engagement", ""),
+                    "confidence": row.get("engagement_confidence", "inferred")
+                } if row.get("industry_engagement") else None,
                 "qualification": row["qualification_data"],
                 "outreach": row["outreach_data"],
                 "crm_data": {

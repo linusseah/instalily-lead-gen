@@ -4,13 +4,11 @@
 
 export type LeadStatus = "Open" | "In Progress" | "Unqualified" | "Closed"
 export type FitScoreLabel = "High" | "Medium" | "Low"
+export type EngagementConfidence = "confirmed" | "historical" | "inferred"
 
-export interface Event {
-  name: string
-  date: string
-  location: string
-  relevance: string
-  source_url?: string
+export interface IndustryEngagement {
+  summary: string                    // Human-readable sentence(s), always populated
+  confidence: EngagementConfidence   // How the data was sourced
 }
 
 export interface Company {
@@ -64,7 +62,7 @@ export interface CRMData {
 
 export interface Lead {
   id: string // UUID from Supabase
-  event: Event
+  industry_engagement: IndustryEngagement | null
   company: Company
   qualification: Qualification
   decision_maker: DecisionMaker | null
