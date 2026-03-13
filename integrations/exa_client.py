@@ -56,3 +56,50 @@ class ExaClient:
         except Exception as e:
             print(f"Exa search error: {e}")
             return []
+
+    def get_company_details(self, company_name: str, company_url: str = None) -> Dict:
+        """
+        Use Exa to gather detailed company information.
+
+        Searches for:
+        - Company overview/about page
+        - Leadership/team pages
+        - Revenue and size information
+
+        Args:
+            company_name: Name of the company
+            company_url: Optional known URL to focus search
+
+        Returns:
+            Dict with company details and decision-maker info
+        """
+        try:
+            # Search for company overview and leadership
+            queries = [
+                f"{company_name} company about overview",
+                f"{company_name} leadership team executives",
+                f"{company_name} contact VP director decision maker"
+            ]
+
+            all_results = []
+            for query in queries:
+                results = self.search(query, num_results=3, type="neural")
+                all_results.extend(results)
+
+            # Deduplicate by URL
+            seen_urls = set()
+            unique_results = []
+            for result in all_results:
+                if result["url"] not in seen_urls:
+                    seen_urls.add(result["url"])
+                    unique_results.append(result)
+
+            return {
+                "company_name": company_name,
+                "search_results": unique_results[:5],  # Top 5 unique results
+                "website": company_url
+            }
+
+        except Exception as e:
+            print(f"Error getting company details: {e}")
+            return {"company_name": company_name, "search_results": [], "website": company_url}

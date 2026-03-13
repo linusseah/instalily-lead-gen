@@ -279,13 +279,51 @@ def parse_company_from_result(result: Dict, events: List[Dict], forced_event: Di
     url = result.get('url', '')
     text = result.get('text', '')
 
-    # Skip if it's an event page, not a company
-    skip_keywords = ['expo', 'conference', 'event', 'trade show', 'association']
-    if any(keyword in title.lower() for keyword in skip_keywords) and 'company' not in title.lower():
+    # Filter out obvious non-companies
+    skip_patterns = [
+        'exhibitor line',
+        'unveils',
+        'confirms',
+        'announces',
+        'to host',
+        'executive leadership',
+        'meet the team',
+        'our team',
+        'company management',
+        'key members'
+    ]
+
+    title_lower = title.lower()
+    if any(pattern in title_lower for pattern in skip_patterns):
         return None
 
-    # Extract company name (crude extraction from title)
-    company_name = title.split('|')[0].split('-')[0].strip()
+    # Try to extract company name from URL first (most reliable)
+    company_name = None
+
+    # Check if URL contains a recognizable company domain
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        domain = parsed.netloc.replace('www.', '')
+
+        # If it's a company website (not a news site or aggregator)
+        news_domains = ['print21.com', 'printmediacentr.com', 'fespa.com', 'linkedin.com', 'facebook.com']
+        if not any(nd in domain for nd in news_domains):
+            # Use domain as company name hint
+            company_name = domain.split('.')[0].replace('-', ' ').title()
+    except:
+        pass
+
+    # Fall back to title parsing (improved)
+    if not company_name:
+        # Remove common prefixes/suffixes
+        clean_title = title.split('|')[0].split('-')[0].strip()
+
+        # If title looks like a person name or article title, skip it
+        if len(clean_title.split()) <= 3 and any(word in clean_title.lower() for word in ['about', 'contact', 'team', 'leadership']):
+            return None
+
+        company_name = clean_title
 
     # Use forced event if provided, otherwise pick from events list
     if forced_event:
