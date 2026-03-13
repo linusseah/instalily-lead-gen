@@ -72,7 +72,6 @@ def main():
     print("-" * 80)
     try:
         research_results = run_research()
-        print(f"✓ Found {len(research_results.get('events', []))} events")
         print(f"✓ Found {len(research_results.get('companies', []))} candidate companies")
 
         # Limit companies if in test/limited mode

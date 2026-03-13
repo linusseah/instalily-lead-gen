@@ -57,6 +57,46 @@ class ExaClient:
             print(f"Exa search error: {e}")
             return []
 
+    def find_similar(
+        self,
+        url: str,
+        num_results: int = 10,
+        exclude_source_domain: bool = True
+    ) -> List[Dict]:
+        """
+        Find similar pages to a given URL using Exa's semantic similarity.
+
+        Args:
+            url: Reference URL to find similar pages to
+            num_results: Number of results to return
+            exclude_source_domain: Exclude results from the same domain as the reference URL
+
+        Returns:
+            List of search results with title, url, and text
+        """
+        try:
+            response = self.client.find_similar_and_contents(
+                url=url,
+                num_results=num_results,
+                exclude_source_domain=exclude_source_domain,
+                text=True
+            )
+
+            results = []
+            for result in response.results:
+                results.append({
+                    "title": result.title,
+                    "url": result.url,
+                    "text": result.text[:500] if result.text else "",  # Truncate for brevity
+                    "score": getattr(result, 'score', None)
+                })
+
+            return results
+
+        except Exception as e:
+            print(f"Exa find_similar error: {e}")
+            return []
+
     def get_company_details(self, company_name: str, company_url: str = None) -> Dict:
         """
         Use Exa to gather detailed company information.

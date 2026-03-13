@@ -1,17 +1,17 @@
 """
-Research Agent - Uses Exa API to find industry events and companies with verified contacts.
+Research Agent - REWRITTEN with ICP-first strategy.
 
-CONTACT-FIRST STRATEGY:
-This agent prioritizes finding REAL, CONTACTABLE leads over general company info.
+NEW STRATEGY:
+Instead of starting with events and trying to find exhibitors (which returns garbage),
+we start with REFERENCE COMPANIES that match the ICP, then use Exa's find_similar()
+to discover similar companies. Claude then extracts clean company names.
 
-Two search strategies:
-1. EVENT-BASED: Start with events that have publicly available attendee/exhibitor lists
-   → Find companies on those lists → Find contacts at those companies → Score fit
+Two-pronged approach:
+1. ICP Similarity Search (primary): Use find_similar() with reference company URLs
+2. ICP Keyword Search (backup): Semantic search for companies matching ICP criteria
 
-2. ICP-BASED: Start with companies similar to reference ICP
-   → Find key decision-makers → Score fit → Match to likely events
-
-CRITICAL: A lead without a findable contact (name + title minimum) is NOT a valid lead.
+Output: Clean list of {company_name, website} - NO events, NO decision-makers.
+Those are handled by Enrichment Agent phases.
 """
 
 import os
@@ -22,22 +22,26 @@ from typing import List, Dict
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from integrations.exa_client import ExaClient
+from integrations.claude_client import ClaudeClient
 
 
-# Target events and associations from ICP
-TARGET_EVENTS = [
-    "ISA Sign Expo 2026",
-    "PRINTING United Expo 2026",
-    "FESPA Global Print Expo 2026",
-    "SEGD experiential graphic design"
+# Reference companies that match Tedlar ICP perfectly
+REFERENCE_COMPANY_URLS = [
+    "https://www.averydennison.com/en/us/products-and-solutions/graphics-solutions.html",
+    "https://www.orafol.com/en/products/vehicle-wraps/",
+    "https://www.arlon.com/graphics-media/",
+    "https://www.fdcfilms.com/",
+    "https://www.3m.com/3M/en_US/graphics-signage-us/",
 ]
 
-TARGET_INDUSTRIES = [
-    "large format signage",
-    "vehicle wraps",
-    "fleet graphics",
-    "architectural graphics",
-    "protective films for graphics"
+# ICP keyword searches as backup strategy
+ICP_KEYWORD_QUERIES = [
+    "large format signage manufacturers companies",
+    "vehicle wrap film producers suppliers",
+    "architectural graphics solutions companies",
+    "fleet graphics protective films manufacturers",
+    "commercial signage overlaminate suppliers",
+    "durable graphic films weather resistant manufacturers",
 ]
 
 
@@ -45,309 +49,183 @@ def run_research() -> Dict:
     """
     Main entry point for the research agent.
 
+    NEW FLOW:
+    1. Use find_similar() on reference company URLs → get similar companies
+    2. Use ICP keyword searches → get companies matching ICP criteria
+    3. Pass all Exa results to Claude → extract real company names
+    4. Deduplicate → return clean company list
+
     Returns:
-        Dict with 'events' and 'companies' keys
+        Dict with 'companies' key (list of {company_name, website})
     """
     print("Initializing Exa client...")
     exa = ExaClient()
 
-    # Step 1: Find events
-    print("\nSearching for industry events...")
-    events = find_events(exa)
-    print(f"Found {len(events)} relevant events")
+    print("Initializing Claude client...")
+    claude = ClaudeClient()
 
-    # Step 2: Find companies for each event
-    print("\nSearching for companies at these events...")
-    companies = find_companies(exa, events)
-    print(f"Found {len(companies)} candidate companies")
+    # Step 1: Find companies similar to reference ICPs
+    print("\n=== STRATEGY 1: ICP Similarity Search ===")
+    similarity_results = find_similar_companies(exa)
+    print(f"Found {len(similarity_results)} results from similarity search")
+
+    # Step 2: Find companies via ICP keyword searches
+    print("\n=== STRATEGY 2: ICP Keyword Search ===")
+    keyword_results = find_companies_by_keywords(exa)
+    print(f"Found {len(keyword_results)} results from keyword search")
+
+    # Step 3: Combine all results and extract companies with Claude
+    print("\n=== EXTRACTING COMPANIES WITH CLAUDE ===")
+    all_results = similarity_results + keyword_results
+    print(f"Total search results to process: {len(all_results)}")
+
+    companies = extract_companies_with_claude(claude, all_results)
+    print(f"✓ Extracted {len(companies)} valid companies")
+
+    # Step 4: Deduplicate by domain
+    print("\n=== DEDUPLICATING ===")
+    unique_companies = deduplicate_companies(companies)
+    print(f"✓ {len(unique_companies)} unique companies after deduplication")
 
     return {
-        "events": events,
-        "companies": companies
+        "companies": unique_companies
     }
 
 
-def find_events(exa: ExaClient) -> List[Dict]:
+def find_similar_companies(exa: ExaClient) -> List[Dict]:
     """
-    Search for relevant industry events and trade shows.
+    Use Exa's find_similar() API to discover companies similar to reference ICPs.
 
     Args:
         exa: Initialized Exa client
 
     Returns:
-        List of event dicts with name, date, location, relevance
+        List of Exa search results
     """
-    events = []
+    all_results = []
 
-    # Search queries for different event types
-    event_queries = [
-        "ISA Sign Expo 2026 Orlando trade show signage graphics",
-        "PRINTING United Expo 2026 Las Vegas large format",
-        "FESPA Global Print Expo 2026 Barcelona",
-        "SEGD Society Experiential Graphic Design conference 2026",
-        "graphics signage industry trade shows 2026 exhibitors"
-    ]
+    for url in REFERENCE_COMPANY_URLS:
+        # Extract company name from URL for logging
+        company_hint = url.split("//")[1].split("/")[0].replace("www.", "")
+        print(f"  Finding companies similar to: {company_hint}")
 
-    seen_urls = set()
+        results = exa.find_similar(
+            url=url,
+            num_results=10,
+            exclude_source_domain=True  # Don't include the reference company itself
+        )
 
-    for query in event_queries:
-        print(f"  Searching: {query[:60]}...")
-        results = exa.search(query, num_results=3)
+        all_results.extend(results)
 
-        for result in results:
-            # Avoid duplicates
-            if result['url'] in seen_urls:
-                continue
-            seen_urls.add(result['url'])
-
-            # Parse event info from results
-            event = parse_event_from_result(result)
-            if event:
-                events.append(event)
-
-    # Add known key events manually to ensure coverage
-    known_events = [
-        {
-            "name": "ISA Sign Expo 2026",
-            "date": "April 2026",
-            "location": "Orlando, FL",
-            "relevance": "Largest sign and graphics industry trade show in North America. DuPont joined ISA in 2025.",
-            "source_url": "https://www.signexpo.org"
-        },
-        {
-            "name": "PRINTING United Expo 2026",
-            "date": "September 2026",
-            "location": "Las Vegas, NV",
-            "relevance": "Major printing industry event covering large-format graphics and signage applications.",
-            "source_url": "https://www.printingunited.com"
-        }
-    ]
-
-    for known_event in known_events:
-        if not any(e['name'] == known_event['name'] for e in events):
-            events.append(known_event)
-
-    return events
+    return all_results
 
 
-def parse_event_from_result(result: Dict) -> Dict:
+def find_companies_by_keywords(exa: ExaClient) -> List[Dict]:
     """
-    Extract event information from Exa search result.
-
-    Args:
-        result: Exa search result dict
-
-    Returns:
-        Event dict or None if not a valid event
-    """
-    title = result.get('title', '')
-    text = result.get('text', '')
-    url = result.get('url', '')
-
-    # Basic validation - should mention event/expo/conference
-    event_keywords = ['expo', 'conference', 'trade show', 'event', 'summit']
-    if not any(keyword in title.lower() for keyword in event_keywords):
-        return None
-
-    # Extract what we can
-    event = {
-        "name": title.split('|')[0].strip(),  # Clean up title
-        "date": "2026",  # Default to target year
-        "location": "TBD",
-        "relevance": text[:200] if text else "Relevant industry event for graphics and signage.",
-        "source_url": url
-    }
-
-    return event
-
-
-def find_companies(exa: ExaClient, events: List[Dict]) -> List[Dict]:
-    """
-    Find companies with VERIFIED CONTACTS - contact-first strategy.
-
-    Priority: Find people first, then validate companies.
-    Only return companies where we can find at least a name + title.
+    Use ICP keyword searches to find companies matching Tedlar's target criteria.
 
     Args:
         exa: Initialized Exa client
-        events: List of event dicts
 
     Returns:
-        List of company dicts with initial contact signals
+        List of Exa search results
     """
-    companies = []
-    seen_companies = set()
+    all_results = []
 
-    print("\n  === STRATEGY 1: Event-Based Contact Discovery ===")
-    # Search for EVENT ATTENDEE LISTS and EXHIBITOR DIRECTORIES with contact info
-    event_contact_queries = [
-        ("ISA Sign Expo 2026 exhibitors list companies contacts", "ISA Sign Expo 2026"),
-        ("ISA Sign Expo Orlando 2026 attendees sponsors exhibitors directory", "ISA Sign Expo 2026"),
-        ("PRINTING United Expo 2026 exhibitor directory speakers", "PRINTING United Expo 2026"),
-        ("PRINTING United Las Vegas 2026 exhibitors list companies", "PRINTING United Expo 2026"),
-        ("FESPA 2026 Barcelona exhibitor list signage graphics", "FESPA Global Print Expo 2026"),
-        ("SEGD members directory experiential graphics designers", "SEGD experiential graphic design"),
-    ]
-
-    for query, event_name in event_contact_queries:
+    for query in ICP_KEYWORD_QUERIES:
         print(f"  Searching: {query[:60]}...")
-        results = exa.search(query, num_results=5, type="neural")
 
-        associated_event = next((e for e in events if e['name'] == event_name), None)
-        if not associated_event:
-            associated_event = {
-                "name": event_name,
-                "date": "2026",
-                "location": "TBD",
-                "relevance": f"Event identified through research",
-                "source_url": ""
-            }
+        results = exa.search(
+            query=query,
+            num_results=8,
+            type="neural"
+        )
 
-        for result in results:
-            # Look for results that mention attendees, exhibitors, speakers, or contact info
-            text_lower = result.get('text', '').lower()
-            title_lower = result.get('title', '').lower()
+        all_results.extend(results)
 
-            if any(keyword in text_lower or keyword in title_lower
-                   for keyword in ['exhibitor', 'attendee', 'speaker', 'directory', 'list', 'sponsors']):
-                company = parse_company_from_result(result, events, forced_event=associated_event)
-                if company:
-                    company_key = company['name'].lower()
-                    if company_key not in seen_companies:
-                        seen_companies.add(company_key)
-                        company['contact_signal'] = 'high'  # Event list = higher contact findability
-                        companies.append(company)
-
-    print("\n  === STRATEGY 2: ICP-Similar Companies with Known Leaders ===")
-    # Search for companies similar to reference ICP (Avery Dennison) with leadership info
-    icp_leadership_queries = [
-        "large format signage companies VP Product Director leadership team",
-        "vehicle wrap manufacturers executives leadership contacts",
-        "architectural graphics film companies decision makers VP Procurement",
-        "sign industry manufacturers leadership team executive contacts",
-        "protective overlaminate film producers executives VP R&D Product",
-        "commercial graphics solutions companies leadership executives"
-    ]
-
-    # These go under "Industry Research" initially - event matching happens in enrichment
-    industry_placeholder = {
-        "name": "N/A",
-        "date": "N/A",
-        "location": "N/A",
-        "relevance": "Company identified through ICP similarity research. Event attendance to be verified during enrichment."
-    }
-
-    for query in icp_leadership_queries:
-        print(f"  Searching: {query[:60]}...")
-        results = exa.search(query, num_results=4, type="neural")
-
-        for result in results:
-            text_lower = result.get('text', '').lower()
-            title_lower = result.get('title', '').lower()
-
-            # Prioritize results that mention titles, names, or leadership
-            has_leadership_signal = any(keyword in text_lower or keyword in title_lower
-                                       for keyword in ['vp', 'director', 'ceo', 'president', 'executive',
-                                                       'leadership', 'team', 'officer', 'manager'])
-
-            if has_leadership_signal:
-                company = parse_company_from_result(result, events, forced_event=industry_placeholder)
-                if company:
-                    company_key = company['name'].lower()
-                    if company_key not in seen_companies:
-                        seen_companies.add(company_key)
-                        company['contact_signal'] = 'medium'  # General search = medium findability
-                        companies.append(company)
-
-    print(f"\n  Found {len(companies)} candidate companies with contact signals")
-    return companies
+    return all_results
 
 
-def parse_company_from_result(result: Dict, events: List[Dict], forced_event: Dict = None) -> Dict:
+def extract_companies_with_claude(claude: ClaudeClient, search_results: List[Dict]) -> List[Dict]:
     """
-    Extract company information from Exa search result.
+    Use Claude to extract REAL company names and websites from Exa search results.
+
+    Claude filters out:
+    - News articles and blog posts
+    - Industry aggregators and directories
+    - Social media profiles
+    - Event announcements
+    - Generic page titles (About Us, Team, etc.)
+    - Person names
 
     Args:
-        result: Exa search result dict
-        events: List of events (for association)
-        forced_event: Event to associate with this company (overrides default)
+        claude: Initialized Claude client
+        search_results: List of Exa search results
 
     Returns:
-        Company dict or None if not valid
+        List of {company_name, website} dicts
     """
-    title = result.get('title', '')
-    url = result.get('url', '')
-    text = result.get('text', '')
+    # Process in batches of 20 to avoid token limits
+    BATCH_SIZE = 20
+    all_companies = []
 
-    # Filter out obvious non-companies
-    skip_patterns = [
-        'exhibitor line',
-        'unveils',
-        'confirms',
-        'announces',
-        'to host',
-        'executive leadership',
-        'meet the team',
-        'our team',
-        'company management',
-        'key members'
-    ]
+    for i in range(0, len(search_results), BATCH_SIZE):
+        batch = search_results[i:i + BATCH_SIZE]
+        batch_num = (i // BATCH_SIZE) + 1
+        total_batches = (len(search_results) + BATCH_SIZE - 1) // BATCH_SIZE
 
-    title_lower = title.lower()
-    if any(pattern in title_lower for pattern in skip_patterns):
-        return None
+        print(f"  Processing batch {batch_num}/{total_batches} ({len(batch)} results)...")
 
-    # Try to extract company name from URL first (most reliable)
-    company_name = None
+        companies = claude.extract_companies_from_search_results(batch)
+        print(f"    → Extracted {len(companies)} companies from batch")
 
-    # Check if URL contains a recognizable company domain
-    try:
-        from urllib.parse import urlparse
-        parsed = urlparse(url)
-        domain = parsed.netloc.replace('www.', '')
+        all_companies.extend(companies)
 
-        # If it's a company website (not a news site or aggregator)
-        news_domains = ['print21.com', 'printmediacentr.com', 'fespa.com', 'linkedin.com', 'facebook.com']
-        if not any(nd in domain for nd in news_domains):
-            # Use domain as company name hint
-            company_name = domain.split('.')[0].replace('-', ' ').title()
-    except:
-        pass
+    return all_companies
 
-    # Fall back to title parsing (improved)
-    if not company_name:
-        # Remove common prefixes/suffixes
-        clean_title = title.split('|')[0].split('-')[0].strip()
 
-        # If title looks like a person name or article title, skip it
-        if len(clean_title.split()) <= 3 and any(word in clean_title.lower() for word in ['about', 'contact', 'team', 'leadership']):
-            return None
+def deduplicate_companies(companies: List[Dict]) -> List[Dict]:
+    """
+    Deduplicate companies by domain.
 
-        company_name = clean_title
+    If two companies have the same domain, keep the first one.
 
-    # Use forced event if provided, otherwise pick from events list
-    if forced_event:
-        associated_event = forced_event
-    else:
-        associated_event = events[0] if events else {
-            "name": "Industry Research",
-            "date": "2026",
-            "location": "N/A",
-            "relevance": "Found through industry research"
-        }
+    Args:
+        companies: List of {company_name, website} dicts
 
-    company = {
-        "name": company_name,
-        "website": url,
-        "initial_fit_signal": text[:200] if text else "Company in graphics and signage industry",
-        "event": associated_event
-    }
+    Returns:
+        Deduplicated list
+    """
+    seen_domains = set()
+    unique_companies = []
 
-    return company
+    for company in companies:
+        website = company.get("website", "")
+
+        # Extract domain from URL
+        try:
+            # Remove protocol
+            domain = website.replace("https://", "").replace("http://", "")
+            # Remove www.
+            domain = domain.replace("www.", "")
+            # Take just the domain (before first /)
+            domain = domain.split("/")[0]
+
+            if domain and domain not in seen_domains:
+                seen_domains.add(domain)
+                unique_companies.append(company)
+        except:
+            # If we can't parse the URL, keep it anyway
+            unique_companies.append(company)
+
+    return unique_companies
 
 
 if __name__ == "__main__":
     # Test the research agent
     results = run_research()
     print("\n" + "=" * 80)
-    print(f"Research complete: {len(results['events'])} events, {len(results['companies'])} companies")
+    print(f"Research complete: {len(results['companies'])} companies found")
+    print("\nSample companies:")
+    for company in results['companies'][:5]:
+        print(f"  - {company['company_name']}: {company['website']}")

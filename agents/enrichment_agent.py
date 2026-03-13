@@ -111,16 +111,31 @@ def run_enrichment(research_results: Dict) -> List[Dict]:
     enriched_leads = []
 
     for i, company_data in enumerate(companies, 1):
-        print(f"\n[{i}/{len(companies)}] Processing: {company_data['name']}")
+        # Normalize company data structure from new Research Agent
+        # New format: {company_name, website}
+        # Enrichment Agent expects: {name, website}
+        normalized_company = {
+            "name": company_data.get('company_name', company_data.get('name', 'Unknown')),
+            "website": company_data.get('website', ''),
+            # No event data from Research Agent anymore - will be enriched later
+            "event": {
+                "name": "N/A",
+                "date": "N/A",
+                "location": "N/A",
+                "relevance": "Event context to be determined during enrichment"
+            }
+        }
+
+        print(f"\n[{i}/{len(companies)}] Processing: {normalized_company['name']}")
 
         try:
             # Phase A: Enrich
             print("  Phase A: Enriching company data...")
-            enriched_company = enrich_company(client, exa_client, company_data, model=model)
+            enriched_company = enrich_company(client, exa_client, normalized_company, model=model)
 
             if enriched_company['enrichment_status'] != 'success':
                 print(f"  ✗ Enrichment failed, skipping qualification")
-                lead = build_lead_object(company_data, enriched_company, None, None)
+                lead = build_lead_object(normalized_company, enriched_company, None, None)
                 enriched_leads.append(lead)
                 continue
 
@@ -137,7 +152,7 @@ def run_enrichment(research_results: Dict) -> List[Dict]:
 
             # Build complete lead object
             lead = build_lead_object(
-                company_data,
+                normalized_company,
                 enriched_company,
                 qualification,
                 enriched_company.get('decision_maker')
@@ -151,13 +166,13 @@ def run_enrichment(research_results: Dict) -> List[Dict]:
             print(f"  ✓ Score: {score}/100 ({label})")
 
         except Exception as e:
-            print(f"  ✗ Error processing {company_data['name']}: {e}")
+            print(f"  ✗ Error processing {normalized_company['name']}: {e}")
             # Add failed lead with minimal data
             lead = {
-                "event": company_data.get('event', {}),
+                "event": normalized_company.get('event', {}),
                 "company": {
-                    "name": company_data['name'],
-                    "website": company_data.get('website', ''),
+                    "name": normalized_company['name'],
+                    "website": normalized_company.get('website', ''),
                     "enrichment_status": "failed",
                     "error": str(e)
                 },
