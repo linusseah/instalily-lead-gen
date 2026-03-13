@@ -63,6 +63,7 @@ export interface CRMData {
 }
 
 export interface Lead {
+  id: string // UUID from Supabase
   event: Event
   company: Company
   qualification: Qualification
@@ -81,7 +82,6 @@ export interface LeadsData {
  * Extended lead type with computed fields for the dashboard
  */
 export interface LeadTableRow extends Lead {
-  id: string // Computed unique ID
   industry: string // Computed from company description
 }
 
