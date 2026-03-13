@@ -148,14 +148,32 @@ def main():
         print("  Writing to Supabase database...")
         supabase = SupabaseClient()
 
+        # Filter out duplicates before inserting
+        non_duplicate_leads = []
+        duplicates_count = 0
+
+        for lead in final_leads:
+            company_name = lead.get("company", {}).get("name")
+            dm_name = lead.get("decision_maker", {}).get("name")
+
+            if company_name and dm_name:
+                if supabase.check_duplicate_lead(company_name, dm_name):
+                    duplicates_count += 1
+                    continue
+
+            non_duplicate_leads.append(lead)
+
+        if duplicates_count > 0:
+            print(f"  ⚠ Skipped {duplicates_count} duplicate leads")
+
         # Create pipeline run
-        pipeline_run_id = supabase.create_pipeline_run(PIPELINE_VERSION, len(final_leads))
+        pipeline_run_id = supabase.create_pipeline_run(PIPELINE_VERSION, len(non_duplicate_leads))
         print(f"  ✓ Created pipeline run: {pipeline_run_id}")
 
-        # Insert all leads in batch
-        if final_leads:
-            lead_ids = supabase.insert_leads_batch(pipeline_run_id, final_leads)
-            print(f"  ✓ Inserted {len(lead_ids)} leads to Supabase")
+        # Insert all non-duplicate leads in batch
+        if non_duplicate_leads:
+            lead_ids = supabase.insert_leads_batch(pipeline_run_id, non_duplicate_leads)
+            print(f"  ✓ Inserted {len(lead_ids)} new leads to Supabase")
 
         # Update pipeline stats
         supabase.update_pipeline_run_stats(

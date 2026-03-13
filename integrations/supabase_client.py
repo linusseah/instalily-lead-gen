@@ -203,6 +203,21 @@ class SupabaseClient:
             return result.data[0]
         return None
 
+    def check_duplicate_lead(self, company_name: str, decision_maker_name: str) -> bool:
+        """
+        Check if a lead already exists in the database.
+
+        Args:
+            company_name: Company name
+            decision_maker_name: Decision maker's name
+
+        Returns:
+            True if duplicate exists, False otherwise
+        """
+        result = self.client.table("leads").select("id").eq("company_name", company_name).eq("decision_maker_name", decision_maker_name).execute()
+
+        return len(result.data) > 0
+
     def update_lead_crm_data(self, lead_id: str, updates: Dict) -> bool:
         """
         Update CRM fields for a lead.
