@@ -145,7 +145,7 @@ def draft_outreach_message(client: Anthropic, lead: Dict, *, model: str) -> Dict
 
     Args:
         client: Anthropic client
-        lead: Complete lead dict with company, event, qualification, decision-maker
+        lead: Complete lead dict with company, industry_engagement, qualification, decision-maker
         model: Anthropic model ID to use
 
     Returns:
@@ -154,8 +154,9 @@ def draft_outreach_message(client: Anthropic, lead: Dict, *, model: str) -> Dict
     # Extract relevant data
     company_name = lead['company']['name']
     company_description = lead['company']['description']
-    event_name = lead['event'].get('name', 'an industry event')
-    event_date = lead['event'].get('date', '')
+    industry_engagement = lead.get('industry_engagement', {})
+    engagement_summary = industry_engagement.get('summary', 'Active in the graphics and signage industry')
+    engagement_confidence = industry_engagement.get('confidence', 'inferred')
     decision_maker_name = lead['decision_maker']['name']
     decision_maker_title = lead['decision_maker']['title']
     qualification_score = lead['qualification'].get('weighted_total', 0)
@@ -174,13 +175,14 @@ Tedlar produces protective PVF (polyvinylidene fluoride) films for graphics and 
 - Company: {company_name}
 - Decision-Maker: {decision_maker_name}, {decision_maker_title}
 - Business: {company_description}
-- Event Context: {event_name} ({event_date})
+- Industry Engagement: {engagement_summary}
+- Engagement Confidence: {engagement_confidence} (confirmed = 2026 event attendance, historical = past event attendance, inferred = likely participant based on ICP)
 - Fit Score: {qualification_score}/100
 - Competitor Flag: {competitor_flag}
 
 **Guidelines:**
 1. Professional, concise, warm tone - NOT generic or overly salesy
-2. Reference their specific event presence ({event_name})
+2. Reference their industry engagement context naturally (e.g., if they attend ISA, mention it; if inferred, focus on their industry focus)
 3. Connect Tedlar's value prop to their specific business focus
 4. If competitor_flag is True, acknowledge potential overlap and focus on non-competing product lines or partnership opportunities
 5. Clear, non-pushy CTA (e.g., "Would a 15-minute intro call make sense?")
