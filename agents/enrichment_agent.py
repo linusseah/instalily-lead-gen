@@ -14,6 +14,68 @@ from anthropic import Anthropic
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Import Exa client
+from integrations.exa_client import ExaClient
+
+DEFAULT_MODEL_FALLBACKS = [
+    # Keep this list conservative; prefer env var overrides when possible.
+    "claude-3-5-sonnet-latest",
+    "claude-3-5-haiku-latest",
+    "claude-3-sonnet-20240229",
+    "claude-3-haiku-20240307",
+]
+
+
+def resolve_anthropic_model(client: Anthropic) -> str:
+    """
+    Pick an Anthropic model id.
+
+    Priority:
+      1) ANTHROPIC_MODEL env var
+      2) Best match from `client.models.list()` (if available)
+      3) Static fallbacks
+    """
+    override = (os.getenv("ANTHROPIC_MODEL") or "").strip()
+    if override:
+        return override
+
+    # Try to discover available models for this API key at runtime.
+    try:
+        page = client.models.list(limit=100)
+
+        # anthropic pagination objects typically expose `.data`, but be defensive.
+        models = []
+        if hasattr(page, "data") and page.data:
+            models = list(page.data)
+        else:
+            try:
+                models = list(page)
+            except TypeError:
+                models = []
+
+        model_ids = [m.id for m in models if getattr(m, "id", None)]
+
+        def rank(model_id: str) -> tuple:
+            mid = model_id.lower()
+            return (
+                "claude" in mid,
+                "sonnet" in mid,
+                "latest" in mid,
+                # Prefer newer families if present (best-effort).
+                "claude-4" in mid,
+                "claude-3-7" in mid,
+                "claude-3-5" in mid,
+                "claude-3" in mid,
+            )
+
+        if model_ids:
+            return sorted(model_ids, key=rank, reverse=True)[0]
+    except Exception:
+        # No network, invalid key, or models.list not allowed for this key.
+        pass
+
+    return DEFAULT_MODEL_FALLBACKS[0]
+
 
 # ICP Rubric Weights
 RUBRIC_WEIGHTS = {
@@ -39,6 +101,11 @@ def run_enrichment(research_results: Dict) -> List[Dict]:
     """
     print("Initializing Claude client...")
     client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    model = resolve_anthropic_model(client)
+    print(f"Using Anthropic model: {model}")
+
+    print("Initializing Exa client for web search...")
+    exa_client = ExaClient()
 
     companies = research_results.get('companies', [])
     enriched_leads = []
@@ -49,7 +116,7 @@ def run_enrichment(research_results: Dict) -> List[Dict]:
         try:
             # Phase A: Enrich
             print("  Phase A: Enriching company data...")
-            enriched_company = enrich_company(client, company_data)
+            enriched_company = enrich_company(client, exa_client, company_data, model=model)
 
             if enriched_company['enrichment_status'] != 'success':
                 print(f"  ✗ Enrichment failed, skipping qualification")
@@ -59,7 +126,7 @@ def run_enrichment(research_results: Dict) -> List[Dict]:
 
             # Phase B: Qualify
             print("  Phase B: Scoring against ICP rubric...")
-            qualification = qualify_company(client, enriched_company)
+            qualification = qualify_company(client, enriched_company, model=model)
 
             # Check for competitor flag
             competitor_flag = is_competitor(enriched_company['name'])
@@ -104,13 +171,15 @@ def run_enrichment(research_results: Dict) -> List[Dict]:
     return enriched_leads
 
 
-def enrich_company(client: Anthropic, company_data: Dict) -> Dict:
+def enrich_company(client: Anthropic, exa_client: ExaClient, company_data: Dict, *, model: str) -> Dict:
     """
-    Phase A: Enrich company data using Claude with web search.
+    Phase A: Enrich company data using Exa web search + Claude analysis.
 
     Args:
         client: Anthropic client
+        exa_client: Exa API client
         company_data: Basic company info from research agent
+        model: Anthropic model ID to use
 
     Returns:
         Enriched company dict
@@ -118,21 +187,64 @@ def enrich_company(client: Anthropic, company_data: Dict) -> Dict:
     company_name = company_data['name']
     website = company_data.get('website', '')
 
+    # PRIORITY 1: Find decision-maker contact info
+    # PRIORITY 2: Verify company details
+    # PRIORITY 3: Verify event attendance if applicable
+
+    event_name = company_data.get('event', {}).get('name', 'N/A')
+
+    # Build targeted search queries with CONTACT FOCUS
+    search_queries = [
+        f"{company_name} CEO President VP Director leadership team",
+        f"{company_name} VP Product Development Director Operations executives",
+        f"{company_name} VP Procurement Director R&D contact information",
+        f"{company_name} company revenue size employees headquarters",
+        f"{company_name} graphics signage protective films overlaminates products",
+    ]
+
+    # Add event-specific search if event is known
+    if event_name != "N/A" and event_name != "Industry Research":
+        search_queries.insert(0, f"{company_name} {event_name} exhibitor sponsor attendee")
+        search_queries.insert(1, f"{company_name} {event_name} booth representative speaker")
+
+    web_context = []
+    for query in search_queries:
+        results = exa_client.search(query, num_results=3, type="neural")
+        for result in results:
+            web_context.append(f"Title: {result['title']}\nURL: {result['url']}\nContent: {result['text']}\n")
+
+    web_context_str = "\n---\n".join(web_context[:15])  # More results to find contacts
+
     prompt = f"""You are enriching company data for a lead generation pipeline for DuPont Tedlar, which makes protective PVF films for graphics and signage applications.
+
+**CRITICAL REQUIREMENT: This lead is ONLY valid if you can find a real decision-maker (name + title minimum).**
 
 Company to research: {company_name}
 Website: {website}
+Associated Event: {event_name}
 
-Use web search to find and provide:
+**Web search results:**
+{web_context_str}
+
+Based on the web search results above, provide:
 
 1. **Revenue estimate** - Annual revenue or size estimate (e.g. "$50M-100M" or "500-1000 employees")
 2. **Company size** - Employee count estimate
 3. **Core business description** - What do they do? (2-3 sentences, focus on graphics/signage products)
 4. **Strategic fit** - How does their business relate to protective films, overlaminates, or durable graphic materials for large-format signage, vehicle wraps, or architectural graphics?
-5. **Key decision-maker** - Find ONE relevant decision-maker (VP/Director of Product, Procurement, R&D, or similar). Include:
-   - Name
-   - Title
-   - LinkedIn URL (if findable)
+
+5. **Event attendance verification** (ONLY if Associated Event is NOT "N/A" or "Industry Research"):
+   - Did you find evidence in the search results that {company_name} is attending, exhibiting, sponsoring, or speaking at {event_name}?
+   - Set event_verified to true ONLY if you found direct evidence (exhibitor list, sponsor announcement, speaker lineup, booth number, etc.)
+   - Set event_verified to false if no evidence found
+   - If false, set event_likelihood: "high", "medium", or "low" based on company profile fit with event
+
+6. **Key decision-maker** (REQUIRED - THIS IS MANDATORY):
+   - Find ONE relevant decision-maker (C-level, VP, or Director in Product, Procurement, R&D, Operations, or Sales)
+   - Name: MUST be a real person's name found in search results
+   - Title: MUST be their actual title
+   - LinkedIn URL: ONLY if you find a real, complete LinkedIn profile URL in format https://www.linkedin.com/in/[username]
+   - **If you cannot find a real person with name + title, return null for decision_maker and set enrichment_status to "no_contact_found"**
 
 Format your response as JSON:
 {{
@@ -140,20 +252,29 @@ Format your response as JSON:
   "size": "...",
   "description": "...",
   "strategic_fit_rationale": "...",
+  "event_verified": true or false or null,
+  "event_likelihood": "high" or "medium" or "low" or null,
   "decision_maker": {{
-    "name": "...",
-    "title": "...",
-    "linkedin": "..." or null
-  }}
+    "name": "Full Name",
+    "title": "Exact Title",
+    "linkedin": "https://www.linkedin.com/in/username" or null
+  }} OR null,
+  "enrichment_status": "success" or "no_contact_found"
 }}
 
-Focus on publicly available information. If you cannot find specific data, make reasonable estimates based on company presence and industry context."""
+**STRICT RULES:**
+1. decision_maker MUST have a real name and title from search results - NO GUESSING
+2. If you cannot find contact info, set decision_maker to null and enrichment_status to "no_contact_found"
+3. LinkedIn URL must be exact format - do NOT construct or guess
+4. event_verified is true ONLY if you found direct evidence of attendance
+5. If Associated Event is "N/A" or "Industry Research", set event_verified and event_likelihood to null
+
+The lead is worthless without a real contact. Be strict."""
 
     try:
         response = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model=model,
             max_tokens=2000,
-            tools=[{"type": "web_search_20250305"}],
             messages=[{"role": "user", "content": prompt}]
         )
 
@@ -195,7 +316,7 @@ Focus on publicly available information. If you cannot find specific data, make 
         }
 
 
-def qualify_company(client: Anthropic, enriched_company: Dict) -> Dict:
+def qualify_company(client: Anthropic, enriched_company: Dict, *, model: str) -> Dict:
     """
     Phase B: Score company against ICP rubric.
 
@@ -263,7 +384,7 @@ Be objective and precise. Consider the data provided."""
 
     try:
         response = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model=model,
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}]
         )

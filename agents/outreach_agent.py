@@ -15,6 +15,65 @@ from anthropic import Anthropic
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+DEFAULT_MODEL_FALLBACKS = [
+    # Keep this list conservative; prefer env var overrides when possible.
+    "claude-3-5-sonnet-latest",
+    "claude-3-5-haiku-latest",
+    "claude-3-sonnet-20240229",
+    "claude-3-haiku-20240307",
+]
+
+
+def resolve_anthropic_model(client: Anthropic) -> str:
+    """
+    Pick an Anthropic model id.
+
+    Priority:
+      1) ANTHROPIC_MODEL env var
+      2) Best match from `client.models.list()` (if available)
+      3) Static fallbacks
+    """
+    override = (os.getenv("ANTHROPIC_MODEL") or "").strip()
+    if override:
+        return override
+
+    # Try to discover available models for this API key at runtime.
+    try:
+        page = client.models.list(limit=100)
+
+        # anthropic pagination objects typically expose `.data`, but be defensive.
+        models = []
+        if hasattr(page, "data") and page.data:
+            models = list(page.data)
+        else:
+            try:
+                models = list(page)
+            except TypeError:
+                models = []
+
+        model_ids = [m.id for m in models if getattr(m, "id", None)]
+
+        def rank(model_id: str) -> tuple:
+            mid = model_id.lower()
+            return (
+                "claude" in mid,
+                "sonnet" in mid,
+                "latest" in mid,
+                # Prefer newer families if present (best-effort).
+                "claude-4" in mid,
+                "claude-3-7" in mid,
+                "claude-3-5" in mid,
+                "claude-3" in mid,
+            )
+
+        if model_ids:
+            return sorted(model_ids, key=rank, reverse=True)[0]
+    except Exception:
+        # No network, invalid key, or models.list not allowed for this key.
+        pass
+
+    return DEFAULT_MODEL_FALLBACKS[0]
+
 
 def run_outreach(enriched_leads: List[Dict]) -> List[Dict]:
     """
@@ -28,6 +87,8 @@ def run_outreach(enriched_leads: List[Dict]) -> List[Dict]:
     """
     print("Initializing Claude client...")
     client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    model = resolve_anthropic_model(client)
+    print(f"Using Anthropic model: {model}")
 
     leads_with_outreach = []
 
@@ -60,7 +121,7 @@ def run_outreach(enriched_leads: List[Dict]) -> List[Dict]:
 
         try:
             # Draft outreach
-            outreach = draft_outreach_message(client, lead)
+            outreach = draft_outreach_message(client, lead, model=model)
             lead['outreach'] = outreach
             print(f"  ✓ Outreach drafted")
 
@@ -78,13 +139,14 @@ def run_outreach(enriched_leads: List[Dict]) -> List[Dict]:
     return leads_with_outreach
 
 
-def draft_outreach_message(client: Anthropic, lead: Dict) -> Dict:
+def draft_outreach_message(client: Anthropic, lead: Dict, *, model: str) -> Dict:
     """
     Draft personalized outreach message for a lead.
 
     Args:
         client: Anthropic client
         lead: Complete lead dict with company, event, qualification, decision-maker
+        model: Anthropic model ID to use
 
     Returns:
         Outreach dict with subject, message, status
@@ -134,7 +196,7 @@ Draft the outreach now."""
 
     try:
         response = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model=model,
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}]
         )

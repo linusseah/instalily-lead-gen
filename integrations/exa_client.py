@@ -20,7 +20,6 @@ class ExaClient:
         self,
         query: str,
         num_results: int = 10,
-        use_autoprompt: bool = True,
         type: str = "neural"
     ) -> List[Dict]:
         """
@@ -39,7 +38,6 @@ class ExaClient:
             response = self.client.search_and_contents(
                 query=query,
                 num_results=num_results,
-                use_autoprompt=use_autoprompt,
                 type=type,
                 text=True
             )

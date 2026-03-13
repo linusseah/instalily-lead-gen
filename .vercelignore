@@ -1,0 +1,25 @@
+# Python files and directories
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+
+# Python application files (not needed for Next.js deployment)
+agents/
+integrations/
+data/
+main.py
+requirements.txt
+
+# Environment files (will be set in Vercel dashboard)
+.env
+.env.local
+
+# Development files
+*.log
+.DS_Store
