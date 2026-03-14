@@ -387,12 +387,16 @@ supabase.table("leads").upsert(lead_rows, on_conflict="company_name,dm_name").ex
 - Optimistic UI updates with background sync
 - Supabase UUID as lead `id` (already updated in `page.tsx`)
 
+### Completed ✅
+- API routes (`app/api/leads/route.ts`) migrated to Supabase — no `fs` calls remain
+- `lib/supabase.ts` created and imported by API routes
+- `lib/types.ts` updated: `Event` → `IndustryEngagement`, `EngagementConfidence` type added
+- `@supabase/supabase-js` added to `package.json`
+- `LeadDetailPanel.tsx` updated: "Event Source" → "Industry Engagement" with 3-tier confidence badge
+
 ### Still needed ❌
-- Replace `fs.readFile` / `fs.writeFile` in API routes with Supabase client calls
-- Add `lib/supabase.ts`
-- Update `lib/types.ts` for new schema (including `contact_found`, `additional_decision_makers`, `dm_contact_fallback`, `industry_engagement`, `engagement_confidence`)
-- Add `@supabase/supabase-js` to `package.json`
-- Add Supabase env vars to Vercel project settings
+- Add Supabase env vars to Vercel project settings (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`)
+- Update `supabase/schema.sql` — replace `event_name/date/location/relevance` columns with `industry_engagement text` + `engagement_confidence text` (file is filesystem-locked; edit directly in Supabase SQL Editor)
 
 ---
 

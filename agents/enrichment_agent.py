@@ -1,9 +1,13 @@
 """
 Enrichment Agent - Uses Claude API with web search to enrich and qualify companies.
 
-This agent has two phases:
-Phase A: Company Enrichment (revenue, size, strategic fit, decision-makers)
-Phase B: Qualification Scoring (4-criterion rubric → score → label)
+This agent runs four sequential phases per company:
+Phase A: Company Enrichment (revenue, size, description — sets enrichment_status)
+Phase B: Industry Engagement (3-tier: confirmed/historical/inferred — always populated)
+Phase C: Qualification Scoring (4-criterion ICP rubric → weighted total → High/Med/Low)
+
+Note: Contact discovery (decision-maker search with fallback chain) is handled
+inside enrich_company() as part of Phase A enrichment.
 """
 
 import os

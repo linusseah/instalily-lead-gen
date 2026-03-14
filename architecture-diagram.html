@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Instalily Architecture</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8f9fa; }
+
+    .page { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+
+    h1 { font-size: 20px; font-weight: 700; color: #111; margin-bottom: 4px; }
+    .subtitle { font-size: 13px; color: #666; margin-bottom: 28px; }
+
+    .tabs { display: flex; gap: 8px; margin-bottom: 24px; }
+    .tab {
+      padding: 8px 20px; border-radius: 6px; font-size: 13px; font-weight: 600;
+      cursor: pointer; border: 1.5px solid #ddd; background: white; color: #666;
+      transition: all 0.15s;
+    }
+    .tab.active { background: #1a1a2e; color: white; border-color: #1a1a2e; }
+
+    .diagram { display: none; }
+    .diagram.active { display: block; }
+
+    /* ---- LAYERS ---- */
+    .layer { margin-bottom: 12px; }
+    .layer-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+      color: #999; margin-bottom: 8px; padding-left: 4px;
+    }
+    .layer-row { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; }
+
+    /* ---- BOXES ---- */
+    .box {
+      border-radius: 8px; padding: 12px 14px; font-size: 12px; line-height: 1.5;
+      border: 1.5px solid transparent; flex: 1; min-width: 140px; position: relative;
+    }
+    .box .box-title { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+    .box .box-note { font-size: 11px; opacity: 0.75; margin-top: 3px; }
+    .box .tag {
+      display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 6px;
+      border-radius: 3px; margin-top: 5px; margin-right: 3px;
+    }
+
+    /* colour themes */
+    .blue   { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
+    .blue   .tag { background: #dbeafe; color: #1d4ed8; }
+    .purple { background: #faf5ff; border-color: #e9d5ff; color: #6b21a8; }
+    .purple .tag { background: #ede9fe; color: #7c3aed; }
+    .green  { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
+    .green  .tag { background: #dcfce7; color: #15803d; }
+    .orange { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
+    .orange .tag { background: #ffedd5; color: #c2410c; }
+    .slate  { background: #f8fafc; border-color: #cbd5e1; color: #334155; }
+    .slate  .tag { background: #e2e8f0; color: #475569; }
+    .dark   { background: #1e293b; border-color: #334155; color: #e2e8f0; }
+    .dark   .box-note { color: #94a3b8; }
+    .dark   .tag { background: #334155; color: #94a3b8; }
+    .amber  { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+    .amber  .tag { background: #fef3c7; color: #b45309; }
+    .rose   { background: #fff1f2; border-color: #fecdd3; color: #9f1239; }
+    .rose   .tag { background: #ffe4e6; color: #be123c; }
+
+    /* ---- ARROWS ---- */
+    .arrow-row {
+      display: flex; align-items: center; justify-content: center;
+      height: 28px; color: #94a3b8; font-size: 18px; margin: -4px 0;
+    }
+    .arrow-label {
+      font-size: 10px; color: #94a3b8; text-align: center; margin: -8px 0 4px;
+      font-style: italic;
+    }
+
+    /* ---- PHASES INSIDE BOX ---- */
+    .phases { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+    .phase {
+      background: rgba(255,255,255,0.6); border: 1px solid rgba(0,0,0,0.08);
+      border-radius: 5px; padding: 5px 8px; font-size: 11px; line-height: 1.4; flex: 1; min-width: 100px;
+    }
+    .phase strong { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; opacity: 0.7; }
+
+    /* ---- LEGEND ---- */
+    .legend { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 24px; padding-top: 16px; border-top: 1px solid #e5e7eb; }
+    .legend-item { display: flex; align-items: center; gap-6px; font-size: 11px; color: #666; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 6px; }
+
+    .section-divider {
+      border: none; border-top: 1.5px dashed #e5e7eb; margin: 4px 0 12px;
+    }
+
+    .new-badge {
+      background: #fef3c7; color: #b45309; font-size: 9px; font-weight: 700;
+      padding: 1px 5px; border-radius: 3px; vertical-align: middle; margin-left: 4px;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+
+    .connector {
+      display: flex; align-items: center; gap: 8px; font-size: 11px; color: #94a3b8;
+      margin: 2px 0;
+    }
+    .connector::before { content: '→'; }
+
+    @media print {
+      body { background: white; }
+      .tabs { display: none; }
+      .diagram { display: block !important; page-break-after: always; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+  <h1>Instalily Lead Generation — Architecture</h1>
+  <p class="subtitle">DuPont Tedlar Graphics &amp; Signage · AI-Powered Lead Intelligence System</p>
+
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('mvp')">MVP (Current)</div>
+    <div class="tab" onclick="showTab('scale')">Scaled (V2/V3)</div>
+  </div>
+
+  <!-- ============================================================ MVP ============================================================ -->
+  <div class="diagram active" id="mvp">
+
+    <!-- External APIs -->
+    <div class="layer">
+      <div class="layer-label">External APIs</div>
+      <div class="layer-row">
+        <div class="box blue" style="max-width:220px">
+          <div class="box-title">Exa API</div>
+          <div class="box-note">Semantic search &amp; similarity</div>
+          <span class="tag">find_similar(url)</span>
+          <span class="tag">search(query)</span>
+        </div>
+        <div class="box purple" style="max-width:220px">
+          <div class="box-title">Anthropic Claude API</div>
+          <div class="box-note">LLM + live web search</div>
+          <span class="tag">claude-sonnet-4-5</span>
+          <span class="tag">web_search_20250305</span>
+        </div>
+        <div class="box slate" style="max-width:220px; opacity:0.6">
+          <div class="box-title">Clay API <span style="font-size:10px;font-weight:400">(stub)</span></div>
+          <div class="box-note">Contact enrichment — not live</div>
+          <span class="tag">Future integration</span>
+        </div>
+        <div class="box slate" style="max-width:220px; opacity:0.6">
+          <div class="box-title">LinkedIn Sales Nav <span style="font-size:10px;font-weight:400">(stub)</span></div>
+          <div class="box-note">DM verification — not live</div>
+          <span class="tag">Future integration</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-row">↓</div>
+    <div class="arrow-label">python main.py</div>
+
+    <!-- Pipeline -->
+    <div class="layer">
+      <div class="layer-label">Pipeline — Python 3.11</div>
+      <div class="layer-row">
+
+        <div class="box blue">
+          <div class="box-title">Agent 1 — Research</div>
+          <div class="box-note">agents/research_agent.py</div>
+          <div class="phases">
+            <div class="phase"><strong>S1</strong>Exa findSimilar from 5 ICP reference URLs → real company websites</div>
+            <div class="phase"><strong>S2</strong>ICP keyword searches → secondary discovery</div>
+            <div class="phase"><strong>Extract</strong>Claude filters Exa results → clean {name, website} list (15–25 co.)</div>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;color:#94a3b8;font-size:18px;padding:0 4px;">→</div>
+
+        <div class="box purple" style="flex:2">
+          <div class="box-title">Agent 2 — Enrichment (4 phases, sequential per company)</div>
+          <div class="box-note">agents/enrichment_agent.py · Claude API with web_search</div>
+          <div class="phases">
+            <div class="phase"><strong>Phase A</strong>Company data: revenue, size, description. Sets enrichment_status.</div>
+            <div class="phase"><strong>Phase B</strong>Contact discovery: DM search with 5-level fallback chain. Never discard a company.</div>
+            <div class="phase"><strong>Phase C</strong>Industry engagement: 3-tier model (confirmed → historical → inferred). Always populated.</div>
+            <div class="phase"><strong>Phase D</strong>Qualification score: 4-criterion rubric → weighted total → High/Med/Low label.</div>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;color:#94a3b8;font-size:18px;padding:0 4px;">→</div>
+
+        <div class="box green">
+          <div class="box-title">Agent 3 — Outreach</div>
+          <div class="box-note">agents/outreach_agent.py</div>
+          <div class="phases">
+            <div class="phase"><strong>Input</strong>Enriched lead profiles from Agent 2</div>
+            <div class="phase"><strong>Output</strong>Subject + 100-150 word personalised email referencing engagement context</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="arrow-row">↓</div>
+    <div class="arrow-label">Dual-write: Supabase (primary) + leads.json (local backup)</div>
+
+    <!-- Data layer -->
+    <div class="layer">
+      <div class="layer-label">Data Layer</div>
+      <div class="layer-row">
+        <div class="box dark" style="flex:2">
+          <div class="box-title">Supabase (Postgres)</div>
+          <div class="box-note">Primary source of truth · integrations/supabase_client.py</div>
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+            <div class="phase" style="background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.12);color:#e2e8f0">
+              <strong style="color:#94a3b8">leads table</strong>
+              company · DM · industry_engagement · qualification · outreach · CRM fields
+            </div>
+            <div class="phase" style="background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.12);color:#e2e8f0">
+              <strong style="color:#94a3b8">pipeline_runs</strong>
+              Run metadata, stats per execution, deduplication anchor
+            </div>
+          </div>
+          <div style="margin-top:8px;">
+            <span class="tag">UUID primary keys</span>
+            <span class="tag">JSONB for multiple DMs</span>
+            <span class="tag">Upsert on company+DM</span>
+          </div>
+        </div>
+        <div class="box slate" style="max-width:200px; opacity:0.7">
+          <div class="box-title">data/leads.json</div>
+          <div class="box-note">Local backup only. Written per run. Not read by dashboard.</div>
+          <span class="tag">Inspectable</span>
+          <span class="tag">Git-committable</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-row">↓</div>
+    <div class="arrow-label">HTTP · Supabase JS client (anon key, NEXT_PUBLIC_)</div>
+
+    <!-- API layer -->
+    <div class="layer">
+      <div class="layer-label">API Layer — Next.js 14 App Router (Serverless Functions on Vercel)</div>
+      <div class="layer-row">
+        <div class="box orange">
+          <div class="box-title">GET /api/leads</div>
+          <div class="box-note">supabase.from('leads').select('*')</div>
+          <div class="box-note" style="margin-top:4px">Returns all leads ordered by qualification_total desc</div>
+        </div>
+        <div class="box orange">
+          <div class="box-title">PATCH /api/leads</div>
+          <div class="box-note">supabase.from('leads').update().eq('id', uuid)</div>
+          <div class="box-note" style="margin-top:4px">CRM fields only: status, owner, notes, last_interaction_date</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-row">↓</div>
+
+    <!-- Frontend -->
+    <div class="layer">
+      <div class="layer-label">Frontend — Next.js 14 · TypeScript · Tailwind · shadcn/ui — Deployed on Vercel</div>
+      <div class="layer-row">
+        <div class="box green" style="flex:3">
+          <div class="box-title">Dashboard (app/page.tsx)</div>
+          <div class="box-note">Reads from Supabase on load · Optimistic UI updates for CRM edits</div>
+          <div class="phases" style="margin-top:8px">
+            <div class="phase"><strong>Row 1</strong>Summary metrics: Total · High Fit · Open · In Progress</div>
+            <div class="phase"><strong>Row 2</strong>Lead table: 13 cols, sortable, filterable, inline editable</div>
+            <div class="phase"><strong>Row 3</strong>Detail panel: contact · company · scores · industry engagement · outreach · CRM edit</div>
+          </div>
+        </div>
+        <div class="box amber" style="max-width:220px">
+          <div class="box-title">Key UX decision</div>
+          <div class="box-note" style="font-size:12px;line-height:1.6">
+            Human enters only at <strong>review stage</strong>. All discovery, enrichment, scoring, and drafting is autonomous. Rep's job: review → copy → send.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <hr class="section-divider" style="margin-top:20px" />
+
+    <!-- Why these choices -->
+    <div class="layer">
+      <div class="layer-label">Key Architectural Decisions</div>
+      <div class="layer-row" style="flex-wrap:wrap">
+        <div class="box rose" style="min-width:200px">
+          <div class="box-title">Why Vercel (not Railway/Render)?</div>
+          <div class="box-note" style="font-size:12px">Serverless suits this use case — dashboard doesn't run continuously. Consequence: <strong>stateless</strong>, so a persistent JSON file fails. Forces Supabase.</div>
+        </div>
+        <div class="box rose" style="min-width:200px">
+          <div class="box-title">Why Supabase (not raw Postgres)?</div>
+          <div class="box-note" style="font-size:12px">Managed Postgres + auto-generated REST API + auth + RLS + dashboard. Supabase JS client works natively in Next.js API routes.</div>
+        </div>
+        <div class="box rose" style="min-width:200px">
+          <div class="box-title">Why Next.js (not Streamlit)?</div>
+          <div class="box-note" style="font-size:12px">Streamlit is one-directional (script → render). CRM editing requires bidirectional state — rep updates must persist back. Wrong tool for that job.</div>
+        </div>
+        <div class="box rose" style="min-width:200px">
+          <div class="box-title">Why ICP similarity, not events?</div>
+          <div class="box-note" style="font-size:12px">Event-attendee search narrows discovery too early and extracts garbage URLs. Exa findSimilar from reference company URLs is more reliable and casts wider.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ SCALE ============================================================ -->
+  <div class="diagram" id="scale">
+
+    <!-- Trigger layer -->
+    <div class="layer">
+      <div class="layer-label">Trigger Layer <span class="new-badge">New</span></div>
+      <div class="layer-row">
+        <div class="box amber">
+          <div class="box-title">GitHub Actions Cron</div>
+          <div class="box-note">Weekly scheduled pipeline run. Stateless batch job — triggers python main.py, writes results to Supabase. No persistent server needed.</div>
+          <span class="tag">0 8 * * 1 (Mon 8am)</span>
+        </div>
+        <div class="box amber">
+          <div class="box-title">Manual / On-demand Run</div>
+          <div class="box-note">Sales rep or admin triggers pipeline via API endpoint or CLI with custom ICP parameters.</div>
+          <span class="tag">POST /api/run-pipeline</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-row">↓</div>
+
+    <!-- ICP config layer -->
+    <div class="layer">
+      <div class="layer-label">ICP Configuration Layer <span class="new-badge">New</span></div>
+      <div class="layer-row">
+        <div class="box blue">
+          <div class="box-title">Parameterized ICP Schema</div>
+          <div class="box-note">Replace hardcoded Tedlar config with JSON input. Each client has one or more ICP profiles.</div>
+          <div class="phases" style="margin-top:8px">
+            <div class="phase"><strong>MVP</strong>1 client · 1 ICP · shared rep view</div>
+            <div class="phase"><strong>V2</strong>1 client · multiple ICPs · rep assigned to ICP</div>
+            <div class="phase"><strong>V3</strong>Multi-tenant · client_id column · reps see own book</div>
+          </div>
+        </div>
+        <div class="box blue">
+          <div class="box-title">Auth Layer (Supabase Auth + RLS)</div>
+          <div class="box-note">Row Level Security policies: each rep JWT grants access only to their assigned leads. Admins see all.</div>
+          <span class="tag">JWT</span>
+          <span class="tag">RLS policies per user_id</span>
+          <span class="tag">client_id column</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-row">↓</div>
+
+    <!-- Pipeline (scaled) -->
+    <div class="layer">
+      <div class="layer-label">Pipeline — Python (asyncio parallelization) <span class="new-badge">Enhanced</span></div>
+      <div class="layer-row">
+        <div class="box blue">
+          <div class="box-title">Agent 1 — Research</div>
+          <div class="box-note">Wider seed set per ICP. Parameterized reference URLs + queries per client config.</div>
+        </div>
+        <div style="display:flex;align-items:center;color:#94a3b8;font-size:18px;padding:0 4px;">→</div>
+        <div class="box purple" style="flex:2">
+          <div class="box-title">Agent 2 — Enrichment (parallel per company)</div>
+          <div class="box-note">asyncio.gather() runs Phase A/B/C/D concurrently across companies. 5× faster at scale.</div>
+          <div class="phases" style="margin-top:8px">
+            <div class="phase"><strong>+ Clay API</strong>Activated: waterfall contact enrichment across 50+ sources. Fills Phase B gap.</div>
+            <div class="phase"><strong>+ LinkedIn</strong>Sales Navigator activated: confirms titles, surfaces mutual connections.</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;color:#94a3b8;font-size:18px;padding:0 4px;">→</div>
+        <div class="box green">
+          <div class="box-title">Agent 3 — Outreach</div>
+          <div class="box-note">Channel-specific templates (LinkedIn vs email). Tone calibrated per client brand.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-row">↓</div>
+    <div class="arrow-label">Incremental upsert — new results only, never overwrites existing CRM edits</div>
+
+    <!-- Data layer (scaled) -->
+    <div class="layer">
+      <div class="layer-label">Data Layer — Supabase <span class="new-badge">Enhanced</span></div>
+      <div class="layer-row">
+        <div class="box dark" style="flex:2">
+          <div class="box-title">Supabase Postgres + pgvector</div>
+          <div class="box-note">Structured relational queries (filter by score, status, owner) + vector similarity search on company embeddings</div>
+          <div class="phases" style="margin-top:8px">
+            <div class="phase" style="background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.12);color:#e2e8f0">
+              <strong style="color:#94a3b8">leads</strong>client_id · rep_id · ICP_id · embedding (vector) · all existing fields
+            </div>
+            <div class="phase" style="background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.12);color:#e2e8f0">
+              <strong style="color:#94a3b8">Wide corpus (V3)</strong>Pre-populated from 3rd-party sources. Reps query on-demand rather than triggering live pipeline runs.
+            </div>
+          </div>
+        </div>
+        <div class="box amber">
+          <div class="box-title">V3 Architecture Shift</div>
+          <div class="box-note" style="font-size:12px;line-height:1.6">
+            Instead of live pipeline runs: <strong>ingest wide data continuously</strong> → store in Supabase → reps query with structured + semantic (vector) search → select results to add to tracker.
+            <br/><br/>
+            Lower inference cost. Faster rep experience. "Save search intent" → daily job adds incremental results.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-row">↓</div>
+
+    <!-- Frontend (scaled) -->
+    <div class="layer">
+      <div class="layer-label">Frontend — Next.js (multi-tenant, rep-scoped) <span class="new-badge">Enhanced</span></div>
+      <div class="layer-row">
+        <div class="box green">
+          <div class="box-title">Rep Dashboard (own book of business)</div>
+          <div class="box-note">RLS ensures each rep sees only their assigned leads. Own ICP criteria, own pipeline runs.</div>
+        </div>
+        <div class="box green">
+          <div class="box-title">ICP Builder UI</div>
+          <div class="box-note">Rep defines ICP criteria in structured form → saves as search intent → triggers pipeline or queries corpus.</div>
+          <span class="tag">New</span>
+        </div>
+        <div class="box green">
+          <div class="box-title">Admin View</div>
+          <div class="box-note">Full visibility across all reps and ICPs. Pipeline run management. Rubric calibration.</div>
+          <span class="tag">New</span>
+        </div>
+        <div class="box amber">
+          <div class="box-title">Eval + Feedback Loop</div>
+          <div class="box-note">Reps rate lead relevance → data fed back to improve rubric weights and search seeds over time.</div>
+          <span class="tag">RLHF-style</span>
+          <span class="tag">New</span>
+        </div>
+      </div>
+    </div>
+
+    <hr class="section-divider" style="margin-top:20px" />
+
+    <!-- Scaling matrix -->
+    <div class="layer">
+      <div class="layer-label">Scaling Matrix</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:#f1f5f9">
+              <th style="padding:8px 12px;text-align:left;border:1px solid #e2e8f0;font-weight:700">Dimension</th>
+              <th style="padding:8px 12px;text-align:left;border:1px solid #e2e8f0;font-weight:700">MVP (Now)</th>
+              <th style="padding:8px 12px;text-align:left;border:1px solid #e2e8f0;font-weight:700">V2</th>
+              <th style="padding:8px 12px;text-align:left;border:1px solid #e2e8f0;font-weight:700">V3</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td style="padding:7px 12px;border:1px solid #e2e8f0">Clients</td><td style="padding:7px 12px;border:1px solid #e2e8f0">1 (Tedlar)</td><td style="padding:7px 12px;border:1px solid #e2e8f0">Multiple (parameterized ICP)</td><td style="padding:7px 12px;border:1px solid #e2e8f0">Multi-tenant (client_id)</td></tr>
+            <tr style="background:#f8fafc"><td style="padding:7px 12px;border:1px solid #e2e8f0">ICPs per client</td><td style="padding:7px 12px;border:1px solid #e2e8f0">1</td><td style="padding:7px 12px;border:1px solid #e2e8f0">Multiple</td><td style="padding:7px 12px;border:1px solid #e2e8f0">Dynamic, rep-defined</td></tr>
+            <tr><td style="padding:7px 12px;border:1px solid #e2e8f0">Sales reps</td><td style="padding:7px 12px;border:1px solid #e2e8f0">Shared view</td><td style="padding:7px 12px;border:1px solid #e2e8f0">Rep-assigned ICPs, own view</td><td style="padding:7px 12px;border:1px solid #e2e8f0">Full auth, book of business</td></tr>
+            <tr style="background:#f8fafc"><td style="padding:7px 12px;border:1px solid #e2e8f0">Pipeline trigger</td><td style="padding:7px 12px;border:1px solid #e2e8f0">Manual (python main.py)</td><td style="padding:7px 12px;border:1px solid #e2e8f0">GitHub Actions cron (weekly)</td><td style="padding:7px 12px;border:1px solid #e2e8f0">Continuous ingestion + on-demand query</td></tr>
+            <tr><td style="padding:7px 12px;border:1px solid #e2e8f0">Contact data</td><td style="padding:7px 12px;border:1px solid #e2e8f0">Web search (~60% hit rate)</td><td style="padding:7px 12px;border:1px solid #e2e8f0">+ Clay API (verify + fill gaps)</td><td style="padding:7px 12px;border:1px solid #e2e8f0">+ LinkedIn Sales Navigator</td></tr>
+            <tr style="background:#f8fafc"><td style="padding:7px 12px;border:1px solid #e2e8f0">Search</td><td style="padding:7px 12px;border:1px solid #e2e8f0">Live Exa calls</td><td style="padding:7px 12px;border:1px solid #e2e8f0">Parallel async enrichment</td><td style="padding:7px 12px;border:1px solid #e2e8f0">Pre-populated corpus + pgvector</td></tr>
+            <tr><td style="padding:7px 12px;border:1px solid #e2e8f0">Qualification</td><td style="padding:7px 12px;border:1px solid #e2e8f0">Enrichment + label (cast wide)</td><td style="padding:7px 12px;border:1px solid #e2e8f0">Qualify-first, enrich top leads</td><td style="padding:7px 12px;border:1px solid #e2e8f0">Rep-calibrated rubric weights</td></tr>
+            <tr style="background:#f8fafc"><td style="padding:7px 12px;border:1px solid #e2e8f0">Approx. cost / run</td><td style="padding:7px 12px;border:1px solid #e2e8f0">~$0.20–0.50</td><td style="padding:7px 12px;border:1px solid #e2e8f0">Higher (Clay + LinkedIn APIs)</td><td style="padding:7px 12px;border:1px solid #e2e8f0">Lower marginal (corpus pre-built)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- end scale -->
+
+</div><!-- end page -->
+
+<script>
+  function showTab(id) {
+    document.querySelectorAll('.diagram').forEach(d => d.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    event.target.classList.add('active');
+  }
+</script>
+</body>
+</html>

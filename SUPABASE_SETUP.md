@@ -98,7 +98,7 @@ This creates 3 tables:
 ### Test Python Connection
 
 ```bash
-cd /Users/linus/Desktop/Claude/GTM_agents
+# Run from the repo root
 python -c "from integrations.supabase_client import SupabaseClient; client = SupabaseClient(); print('✓ Python Supabase connection successful!')"
 ```
 
@@ -119,7 +119,6 @@ Then visit `http://localhost:3000` - dashboard should load (even if empty)
 
 1. Run a test pipeline to generate leads:
    ```bash
-   cd /Users/linus/Desktop/Claude/GTM_agents
    python main.py --test
    ```
 
@@ -127,7 +126,7 @@ Then visit `http://localhost:3000` - dashboard should load (even if empty)
    ```
    Writing to Supabase database...
    ✓ Created pipeline run: <UUID>
-   ✓ Inserted X leads to Supabase
+   ✓ Inserted X new leads to Supabase
    ✓ Updated pipeline statistics
    ```
 
@@ -174,7 +173,7 @@ Then visit `http://localhost:3000` - dashboard should load (even if empty)
 ### Python pipeline fails with Supabase error
 
 - Check `.env` file has correct credentials
-- Test connection: `python -c "from integrations.supabase_client import SupabaseClient; SupabaseClient()"`
+- Test connection from repo root: `python -c "from integrations.supabase_client import SupabaseClient; SupabaseClient()"`
 
 ---
 

@@ -2,21 +2,24 @@
 
 > **Case Study:** DuPont Tedlar Graphics & Signage Lead Intelligence System
 
-A working prototype of an autonomous AI agent system that researches industry events, identifies qualified companies, scores them against a structured ICP rubric, finds decision-makers, and drafts personalized outreach — all presented in an interactive Streamlit dashboard.
+A working prototype of an autonomous AI agent system that identifies ICP-matching companies, finds decision-makers, scores them against a structured rubric, builds industry engagement profiles, and drafts personalised outreach — all surfaced in a Next.js dashboard deployed on Vercel.
 
 ---
 
 ## Overview
 
-This project demonstrates a practical, production-ready approach to AI-powered B2B lead generation. Using **Exa API** for semantic research and **Claude API** with web search for enrichment and qualification, the system autonomously processes leads from initial research through to personalized outreach drafts.
+This project demonstrates a practical, production-ready approach to AI-powered B2B lead generation. Using **Exa API** for ICP-similarity discovery and **Claude API** with web search for enrichment and qualification, the system autonomously processes leads from initial research through to personalised outreach drafts.
 
 ### Key Features
 
 - **Fully Autonomous Pipeline** — Run once via `python main.py`, no human intervention during processing
-- **Real Data Sources** — Exa API pulls live event and company data; Claude web search enriches with current information
-- **Structured Qualification** — 4-criterion ICP rubric with weighted scoring (0-100) and High/Medium/Low labels
-- **Personalized Outreach** — Context-aware email drafts referencing event presence and company-specific value props
-- **Interactive Dashboard** — Streamlit UI for reviewing, filtering, and managing leads
+- **ICP-Similarity Discovery** — Exa `find_similar()` seeded from reference company URLs; far more reliable than keyword or event-attendee search
+- **4-Phase Enrichment** — Company data → contact discovery → industry engagement → qualification scoring, all in one agent step
+- **3-Tier Industry Engagement** — Confirmed event attendance, historical attendance, or inferred from ICP profile; always populated, never null
+- **Contact Fallback Chain** — Named DM with LinkedIn → named DM only → generic email → contact page; companies never discarded for lack of contact
+- **Structured Qualification** — 4-criterion ICP rubric with weighted scoring (0–100) and High/Medium/Low labels
+- **Personalised Outreach** — Context-aware email drafts referencing industry engagement and company-specific value props
+- **Next.js Dashboard** — HubSpot-style sliding detail panel, inline CRM editing, filterable lead table — deployed on Vercel
 - **Integration-Ready** — Documented stubs for Clay API and LinkedIn Sales Navigator showing production pathway
 
 ---
@@ -29,24 +32,26 @@ This project demonstrates a practical, production-ready approach to AI-powered B
 python main.py
     │
     ▼
-[1] Research Agent          ← Exa API (semantic search)
-    │ events + companies
+[1] Research Agent          ← Exa API (findSimilar + keyword search)
+    │ clean list of company names + websites (15–25 companies)
     ▼
-[2] Enrichment Agent        ← Claude API with web_search
-    │   Phase A: Company enrichment (revenue, size, strategic fit)
-    │   Phase B: Qualification scoring (4-criterion rubric → score → label)
-    │ enriched + scored lead profiles
+[2] Enrichment Agent        ← Claude API with web_search tool
+    │   Phase A: Company enrichment (revenue, size, description)
+    │   Phase B: Contact discovery (decision-makers, LinkedIn, fallback chain)
+    │   Phase C: Industry engagement (3-tier: confirmed/historical/inferred)
+    │   Phase D: Qualification scoring (4-criterion rubric → score → label)
+    │ fully enriched + scored lead profiles
     ▼
-[3] Outreach Agent          ← Claude API (no web search)
-    │ personalized outreach messages per decision-maker
+[3] Outreach Agent          ← Claude API (no web search needed)
+    │ personalised outreach messages per decision-maker
     ▼
-data/leads.json             ← flat file storage
-    │
+Supabase `leads` table      ← pipeline writes rows; dashboard reads via API
+    │                         (data/leads.json written as backup)
     ▼
-Streamlit Dashboard         ← reads leads.json, displays to user
+Next.js Dashboard           ← reads from Supabase via /api/leads, displays to user
 ```
 
-**Design Philosophy:** Simple chained Python functions calling APIs and passing structured JSON. Not using Claude Agent SDK — deliberate choice for predictability and debuggability within a rapid prototype window.
+**Design Philosophy:** Simple chained Python functions calling APIs and passing structured JSON. Not using Claude Agent SDK — deliberate choice for predictability and debuggability within a rapid prototype window. Enrichment and qualification are tightly coupled (you need enriched data before you can score), so they live as a single agent with four internal phases.
 
 ---
 
@@ -55,8 +60,10 @@ Streamlit Dashboard         ← reads leads.json, displays to user
 ### Prerequisites
 
 - Python 3.11+
+- Node.js 18+
 - Anthropic API key ([get one here](https://console.anthropic.com/))
 - Exa API key ([get one here](https://exa.ai/))
+- Supabase project ([set up free here](https://supabase.com)) — see `SUPABASE_SETUP.md`
 
 ### Installation
 
@@ -67,7 +74,7 @@ git clone https://github.com/yourusername/instalily-lead-gen.git
 cd instalily-lead-gen
 ```
 
-2. **Install dependencies**
+2. **Install Python dependencies**
 
 ```bash
 pip install -r requirements.txt
@@ -77,228 +84,241 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Edit .env and add your API keys:
-# ANTHROPIC_API_KEY=your_key_here
-# EXA_API_KEY=your_key_here
+# Add your API keys to .env
 ```
+
+4. **Set up Supabase** — follow `SUPABASE_SETUP.md` to create the database and get credentials.
 
 ### Running the Pipeline
 
 **Step 1: Run the pipeline**
 
 ```bash
-python main.py
+python main.py            # Full pipeline
+python main.py --test     # Quick test (3 companies)
+python main.py --limit 5  # Process 5 companies
 ```
 
 This will:
-- Search for relevant industry events and companies (Research Agent)
-- Enrich company data and score against ICP rubric (Enrichment Agent)
-- Draft personalized outreach for each decision-maker (Outreach Agent)
-- Save results to `data/leads.json`
+- Discover ICP-matching companies via Exa similarity search (Research Agent)
+- Enrich, find contacts, build industry engagement profiles, and score leads (Enrichment Agent)
+- Draft personalised outreach for each decision-maker (Outreach Agent)
+- Write results to Supabase and `data/leads.json` (backup)
 
-Expected runtime: 5-15 minutes depending on number of companies found.
+Expected runtime: 5–15 minutes depending on number of companies found.
 
 **Step 2: Launch the dashboard**
 
 ```bash
-streamlit run dashboard/app.py
+cd dashboard-nextjs
+npm install
+npm run dev
 ```
 
-Open your browser to `http://localhost:8501` to view and manage leads.
+Open your browser to `http://localhost:3000`.
 
 ---
 
 ## Agent Details
 
-### Agent 1: Research Agent
+### Agent 1: Research Agent (`agents/research_agent.py`)
 
-**Purpose:** Find relevant trade shows and exhibiting companies
+**Purpose:** Produce a clean list of real company names and websites matching the Tedlar ICP.
 
-**Tool:** Exa API (semantic search)
+**Tool:** Exa API — `exa.find_similar()` + `exa.search()`
 
-**Queries:**
-- `"ISA Sign Expo exhibitors signage companies"`
-- `"large format printing industry associations exhibitors"`
-- `"vehicle wrap architectural graphics exhibitions companies"`
+**Strategy 1 — ICP Similarity Search (primary)**
 
-**Output:** Events (name, date, location, relevance) + Companies (name, website, initial fit signal)
+Seeds from known reference company URLs. Finds semantically similar company websites — far more reliable than keyword-based discovery.
 
-### Agent 2: Enrichment Agent
-
-**Purpose:** Enrich and qualify companies (two internal phases)
-
-**Tool:** Claude API with `web_search_20250305`
-
-**Phase A — Company Enrichment:**
-- Revenue / company size estimate
-- Core business description
-- Strategic fit rationale
-- Key decision-maker identification (name, title, LinkedIn)
-
-**Phase B — Qualification Scoring:**
-
-Scores each company on 4 criteria (0-10 each):
-
-| Criterion | Weight | Description |
-|-----------|--------|-------------|
-| **Industry Fit** | 30% | Core business in large-format signage, vehicle wraps, fleet graphics, or architectural graphics |
-| **Size & Revenue** | 20% | Revenue >$50M or 200+ employees preferred |
-| **Strategic Relevance** | 30% | Use/produce protective overlaminates or durable graphic films for Tedlar supply |
-| **Event Engagement** | 20% | Active participation in ISA, PRINTING United, FESPA, SEGD |
-
-**Score Calculation:**
-```
-weighted_total = (industry_fit × 0.30 + size × 0.20 + strategic_relevance × 0.30 + event_engagement × 0.20) × 10
+```python
+reference_urls = [
+    "https://www.averydennison.com/.../graphics-solutions",
+    "https://www.orafal.com/en/products/vehicle-wraps/",
+    "https://www.arlon.com/graphics-media/",
+    "https://www.fdcgraphicfilms.com/",
+    "https://www.3m.com/.../graphics-signage-us/",
+]
 ```
 
-**Labels:**
-- ≥70 → "High"
-- 40-69 → "Medium"
-- <40 → "Low"
+**Strategy 2 — ICP Keyword Search (secondary)**
 
-### Agent 3: Outreach Agent
+Direct ICP-aligned queries targeting company websites, not directories or aggregators.
 
-**Purpose:** Draft personalized outreach emails
+**Company Extraction — Claude, not URL parsing**
 
-**Tool:** Claude API (no web search needed)
+Exa results are passed to Claude with explicit instructions to extract real company names and exclude directories, LinkedIn, news sites, and aggregators.
 
-**Approach:**
-- References specific event presence
-- Connects Tedlar value prop to company's focus area
-- Includes clear, non-pushy CTA
-- Professional, concise, warm tone (100-150 words)
-
-**Output:** Subject line + email body
+**Output:** 15–25 deduplicated `{company_name, website}` pairs.
 
 ---
 
-## Dashboard Features
+### Agent 2: Enrichment Agent (`agents/enrichment_agent.py`)
 
-### Section 1: Summary Metrics
-- Total Leads
-- High Fit Leads
-- Outreach Drafted
-- Events Covered
+**Purpose:** Fully enrich each candidate company across four sequential phases.
 
-### Section 2: Sidebar Filters
-- Filter by Event (multi-select)
-- Filter by Fit Score (High/Medium/Low)
-- Toggle: Show/Hide integration stubs
-- Download filtered leads as CSV
+**Tool:** Claude API with `web_search_20250305`
 
-### Section 3: Lead Table + Expandable Cards
-- **Table view:** Event, Company, Revenue, Fit Score, Decision-Maker, Status
-- **Expanded view:** Full qualification breakdown, decision-maker details, outreach message with copy-to-clipboard
-- **Status management:** Mark leads as Draft → Reviewed → Sent
+**Phase A — Company Enrichment**
+- Revenue estimate and employee count
+- Core business description (1–2 sentences)
+- Primary product/service lines relevant to Tedlar ICP
+- Sets `enrichment_status: "success"` or `"failed"` — failures skip Phases B/C/D
+
+**Phase B — Contact Discovery**
+
+Searches for decision-makers in priority order: Head of Partnerships → VP/Director of Procurement → VP/Director of Product → CEO/COO (small companies) → R&D Director.
+
+Fallback chain (stops at first success):
+1. Named DM + LinkedIn URL + email
+2. Named DM + LinkedIn URL
+3. Named DM + title only
+4. Generic company email (info@, partnerships@)
+5. Contact page URL
+6. `contact_found: false` — company is kept, not discarded
+
+Multiple contacts per company are allowed and stored in `additional_decision_makers`.
+
+**Phase C — Industry Engagement Enrichment**
+
+Builds an `industry_engagement` profile for every company. Always populated — never null.
+
+| Tier | Label | How determined |
+|------|-------|----------------|
+| 1 | **Confirmed** | 2026 press release, blog post, or official exhibitor list |
+| 2 | **Historical** | 2024/2025 attendance records found |
+| 3 | **Inferred** | ICP profile strongly suggests relevant shows |
+
+Target shows: ISA Sign Expo (April 2026, Orlando), PRINTING United Expo (Sept 2026, Las Vegas), FESPA Global Print Expo (May 2026, Barcelona), SEGD conference.
+
+**Phase D — Qualification Scoring**
+
+| Criterion | Weight | What it scores |
+|-----------|--------|----------------|
+| Industry Fit | 30% | Core business in large-format signage, vehicle wraps, fleet graphics, architectural graphics |
+| Size & Revenue | 20% | Revenue >$50M or 200+ employees; scaled proportionally for smaller companies |
+| Strategic Relevance | 30% | Uses or produces protective overlaminates / durable graphic films Tedlar could supply |
+| Event Engagement | 20% | Active at ISA, PRINTING United, FESPA, or SEGD (from Phase C + general knowledge) |
+
+Score: `(industry_fit × 0.30 + size × 0.20 + strategic_relevance × 0.30 + event_engagement × 0.20) × 10` → out of 100
+
+Labels: ≥70 → **High**, 40–69 → **Medium**, <40 → **Low**
+
+Competitor flag: Avery Dennison and 3M are flagged `competitor_flag: true` but included as leads — they may be targets for different product lines.
+
+---
+
+### Agent 3: Outreach Agent (`agents/outreach_agent.py`)
+
+**Purpose:** Draft personalised outreach emails from enriched lead data.
+
+**Tool:** Claude API (no web search — works entirely from enriched data)
+
+Each message references:
+- The decision-maker's specific role and company focus
+- A Tedlar value proposition relevant to their use case
+- Industry engagement context from Phase C (makes outreach warm and timely)
+- A non-pushy CTA ("Would a 15-minute intro call make sense?")
+
+**Output:** Subject line + ~100–150 word email body per lead. For companies with no named DM, addressed to "the Partnerships team".
+
+---
+
+## Dashboard
+
+Built with **Next.js 14 App Router**, TypeScript, Tailwind CSS, and shadcn/ui. Deployed on Vercel.
+
+### Layout
+
+**Row 1 — Summary metrics:** Total Leads · High Fit · Open · In Progress
+
+**Row 2 — Filterable lead table (13 columns):**
+- Company, Decision-Maker, Title, Revenue, Size, Industry, Fit Score, Status, Owner, Event Engagement, Created Date, Last Interaction, Actions
+- Sortable columns; inline-editable Status and Owner
+- Filter by fit score, lead status, lead owner
+
+**Row 3 — Sliding detail panel (HubSpot-style, opens on row click):**
+- Contact Information (email, phone, LinkedIn with copy buttons)
+- Company Information (name, website, revenue, size, description, competitor badge)
+- Qualification Score Breakdown (progress bars per criterion + rationale)
+- Industry Engagement (confidence badge: Confirmed/Historical/Inferred + summary text)
+- Recommended Outreach (subject + message + copy-to-clipboard)
+- CRM Data (editable: status, owner, last interaction date, notes + save)
+
+### Data Flow
+
+```
+Supabase `leads` table
+    ↓
+Next.js /api/leads (GET / PATCH)
+    ↓
+Dashboard UI (reads + updates)
+```
+
+CRM edits (status, owner, notes, dates) write back to Supabase via PATCH. Optimistic UI updates — state updates immediately without waiting for the API response.
 
 ---
 
 ## Integration Stubs
 
-This prototype includes **documented stubs** for two key integrations that would be activated in production:
+Two production integrations are documented as stubs:
 
-### 1. Clay API (`integrations/clay_stub.py`)
-**Purpose:** Waterfall enrichment across 50+ data sources for verified contact details
+### Clay API (`integrations/clay_stub.py`)
+Waterfall enrichment across 50+ data sources for verified emails, phones, and LinkedIn profiles. Directly addresses the Phase B contact discovery gap — web search finds ~60% of contacts; Clay fills the remaining 40% and verifies what was found.
 
-**Provides:**
-- Verified email addresses
-- Phone numbers
-- LinkedIn profile matching
-- High-confidence contact discovery
+### LinkedIn Sales Navigator (`integrations/linkedin_stub.py`)
+Advanced people search by company and title; confirms job titles are current; surfaces mutual connections for outreach personalisation.
 
-**To activate:** See detailed instructions in `integrations/clay_stub.py`
-
-### 2. LinkedIn Sales Navigator API (`integrations/linkedin_stub.py`)
-**Purpose:** Decision-maker discovery and profile verification
-
-**Provides:**
-- Advanced people search by company and title
-- Profile data including connections and shared experiences
-- InMail messaging capabilities
-
-**To activate:** See detailed instructions in `integrations/linkedin_stub.py`
+Both stubs include activation instructions and are surfaced in the dashboard detail panel.
 
 ---
 
 ## Data Schema
 
-Output is saved to `data/leads.json` in the following structure:
+Pipeline writes to Supabase `leads` table. `data/leads.json` is a local backup only.
 
-```json
-{
-  "generated_at": "2026-03-11T10:00:00",
-  "pipeline_version": "1.0.0",
-  "leads": [
-    {
-      "event": {
-        "name": "ISA Sign Expo 2026",
-        "date": "April 2026",
-        "location": "Orlando, FL",
-        "relevance": "Largest sign and graphics industry trade show..."
-      },
-      "company": {
-        "name": "Company Name",
-        "website": "https://example.com",
-        "revenue_estimate": "$50M-100M",
-        "size": "200-500 employees",
-        "description": "Company description...",
-        "competitor_flag": false,
-        "enrichment_status": "success"
-      },
-      "qualification": {
-        "scores": {
-          "industry_fit": 8,
-          "size_and_revenue": 7,
-          "strategic_relevance": 9,
-          "event_engagement": 6
-        },
-        "weighted_total": 78,
-        "label": "High",
-        "rationale": "Strong fit for Tedlar's protective film applications..."
-      },
-      "decision_maker": {
-        "name": "Jane Doe",
-        "title": "VP Product Development",
-        "linkedin": "https://linkedin.com/in/janedoe",
-        "source": "web_search",
-        "email": null,
-        "phone": null
-      },
-      "outreach": {
-        "subject": "DuPont Tedlar x Company Name — Protective Films Partnership",
-        "message": "Hi Jane, I noticed...",
-        "status": "draft"
-      }
-    }
-  ]
-}
+Key fields:
+
+```
+company_name, company_website, company_revenue_estimate, company_size,
+company_description, competitor_flag, enrichment_status, contact_found
+
+industry_engagement      -- always populated; human-readable summary
+engagement_confidence    -- 'confirmed' | 'historical' | 'inferred'
+
+score_industry_fit, score_size_revenue, score_strategic_relevance,
+score_event_engagement, qualification_total, qualification_label,
+qualification_rationale
+
+dm_name, dm_title, dm_linkedin, dm_email, dm_phone, dm_source,
+dm_contact_fallback, additional_decision_makers (JSONB)
+
+outreach_subject, outreach_message, outreach_status
+
+crm_lead_status, crm_lead_owner, crm_last_interaction_date, crm_notes
 ```
 
----
-
-## Error Handling
-
-The pipeline implements robust error handling:
-
-- **Per-lead try/except:** Pipeline continues if individual leads fail
-- **Graceful degradation:** Failed enrichment → skip qualification, continue to next lead
-- **Status tracking:** `enrichment_status`, `qualification.label`, `outreach.status` fields track success/failure
-- **Dashboard resilience:** Handles null/missing fields without crashing
+Full SQL schema in `supabase/schema.sql`.
 
 ---
 
-## Scalability & Production Roadmap
+## Deployment
 
-This prototype is intentionally simple for rapid development. Production evolution path:
+### Deploy to Vercel
 
-1. **Parallelization** — `asyncio` for concurrent enrichment across multiple companies
-2. **Database** — Replace JSON with Supabase for proper lead tracking and history
-3. **Live Integrations** — Activate Clay + LinkedIn stubs for verified contact data
-4. **Parameterized ICP** — Replace hardcoded Tedlar ICP with structured input schema for any client
-5. **Scheduled Runs** — GitHub Actions cron job for weekly automated pipeline execution
-6. **Webhooks** — Slack notifications when new leads are ready for review
-7. **Frontend Upgrade** — React dashboard (via Lovable or similar) deployed on Vercel
-8. **Agent Evaluation** — RLHF loop to improve qualification accuracy over time
+1. Push repo to GitHub
+2. Import project at [vercel.com/new](https://vercel.com/new)
+3. Set root directory to `dashboard-nextjs`
+4. Add environment variables:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+5. Deploy
+
+The pipeline (`main.py`) runs locally or via GitHub Actions — not on Vercel. Vercel only serves the Next.js dashboard.
+
+### Scheduled Pipeline Runs (GitHub Actions)
+
+For automated weekly lead refreshes, add a GitHub Actions workflow that runs `python main.py` on a cron schedule and writes results to Supabase. This is a stateless batch job — no persistent server needed.
 
 ---
 
@@ -306,12 +326,14 @@ This prototype is intentionally simple for rapid development. Production evoluti
 
 | Layer | Tool | Purpose |
 |-------|------|---------|
-| Language | Python 3.11+ | Core implementation |
-| Research | Exa API | Semantic search for events and companies |
-| Enrichment | Anthropic Claude API | Company enrichment + qualification with web search |
-| Outreach | Anthropic Claude API | Personalized message drafting |
-| Storage | JSON flat file | Simple, inspectable, version-controllable |
-| Dashboard | Streamlit | Rapid prototyping, good demo UX |
+| Language | Python 3.11+ | Pipeline implementation |
+| Research | Exa API | ICP-similarity search (`find_similar`) + keyword search |
+| Enrichment | Anthropic Claude API | Company enrichment, contact discovery, industry engagement, qualification (with web search) |
+| Outreach | Anthropic Claude API | Personalised message drafting |
+| Database | Supabase (Postgres) | Primary data store; dashboard reads/writes here |
+| Backup | JSON flat file | `data/leads.json` — local backup per pipeline run |
+| Dashboard | Next.js 14 + Tailwind + shadcn/ui | Interactive lead management UI |
+| Deployment | Vercel | Dashboard hosting (serverless) |
 | Future: Contact Data | Clay API (stub) | Waterfall contact enrichment |
 | Future: LinkedIn | Sales Navigator (stub) | Decision-maker verification |
 
@@ -322,120 +344,81 @@ This prototype is intentionally simple for rapid development. Production evoluti
 ```
 instalily-lead-gen/
 ├── agents/
-│   ├── research_agent.py       # Exa API — events + companies
-│   ├── enrichment_agent.py     # Claude API — enrich + qualify (2 phases)
-│   └── outreach_agent.py       # Claude API — personalized outreach
+│   ├── research_agent.py       # Exa findSimilar + keyword → Claude extraction
+│   ├── enrichment_agent.py     # 4 phases: enrich, contacts, industry engagement, score
+│   └── outreach_agent.py       # Claude API — personalised outreach
 ├── integrations/
 │   ├── exa_client.py           # Exa API wrapper
+│   ├── supabase_client.py      # Supabase read/write wrapper
 │   ├── clay_stub.py            # Clay API stub (documented, not live)
 │   └── linkedin_stub.py        # LinkedIn Sales Navigator stub
 ├── data/
-│   └── leads.json              # Pipeline output (generated)
-├── dashboard/
-│   └── app.py                  # Streamlit dashboard
+│   └── leads.json              # Local backup — Supabase is source of truth
+├── dashboard-nextjs/
+│   ├── app/
+│   │   ├── page.tsx            # Main dashboard page
+│   │   └── api/leads/route.ts  # GET + PATCH API routes (reads/writes Supabase)
+│   ├── components/
+│   │   ├── LeadTable.tsx       # 13-column sortable table with inline editing
+│   │   └── LeadDetailPanel.tsx # HubSpot-style sliding panel
+│   ├── lib/
+│   │   ├── types.ts            # TypeScript types (Lead, IndustryEngagement, etc.)
+│   │   ├── supabase.ts         # Supabase JS client
+│   │   └── utils.ts            # Formatting and utility functions
+│   └── package.json
+├── supabase/
+│   └── schema.sql              # Run this in Supabase SQL Editor to set up tables
 ├── main.py                     # Orchestrator — runs all 3 agents
-├── requirements.txt            # Python dependencies
-├── .env.example                # Environment variable template
-├── CLAUDE.md                   # Master project brief
-└── README.md                   # This file
+├── requirements.txt
+├── .env.example
+├── CLAUDE.md                   # Master project brief (single source of truth)
+├── SUPABASE_SETUP.md           # Step-by-step Supabase setup guide
+└── README.md
 ```
 
 ---
 
 ## Use Case: DuPont Tedlar
 
-**ICP Overview:**
+**Product:** Protective PVF films for graphics and signage — exceptional durability, weather resistance, UV protection (12–20+ year graphic life).
 
-DuPont Tedlar manufactures protective PVF films for graphics and signage applications with exceptional durability, weather resistance, and UV protection (12-20+ year graphic life).
+**ICP:** Companies that use, specify, or produce protective overlaminates and durable graphic films for large-format applications — vehicle wraps, fleet graphics, architectural graphics, outdoor signage.
 
-**Target Industries:**
-- Large-format signage
-- Vehicle wraps and fleet graphics
-- Architectural graphics
-- Protective overlaminates for durable signage
-
-**Target Events:**
-- ISA Sign Expo (April 2026, Orlando)
-- PRINTING United Expo (September 2026, Las Vegas)
-- FESPA Global Print Expo (May 2026, Barcelona)
-- SEGD conferences
-
-**Example Qualified Company:** Avery Dennison Graphics Solutions
-- Specializes in large-format signage, vehicle wraps, architectural graphics
-- $8B+ revenue, global scale
-- Active at ISA Sign Expo
-- Note: Also a competitor in some overlaminate categories — flagged accordingly
+**Reference companies used as discovery seeds:**
+- Avery Dennison Graphics Solutions — $8B+ revenue; also a competitor, flagged
+- Orafal Americas — pressure-sensitive adhesive films, vehicle wraps
+- Arlon Graphics — high-performance graphics films and overlaminates
+- FDC Graphic Films — distributor of graphic films and overlaminates
+- 3M Commercial Graphics — large-format graphics, vehicle wraps; also a competitor, flagged
 
 ---
 
-## Development Notes
+## Scalability Roadmap
 
-### Key Design Decisions
+1. **Parallelise enrichment** — `asyncio` for concurrent Phase A/B/C/D per company
+2. **Activate Clay + LinkedIn stubs** — fills the contact discovery gap, verifies emails
+3. **Parameterise the ICP** — replace hardcoded Tedlar config with JSON input schema for any client
+4. **Schedule pipeline** — GitHub Actions cron → weekly automated refresh → Supabase
+5. **Server-side filtering** — move filter logic into Supabase queries for scale
+6. **Multi-tenant** — `client_id` column; reps see only their client's leads
+7. **Evals + RLHF** — score qualification accuracy against rep feedback, improve over time
+
+---
+
+## Key Design Decisions
 
 | Decision | Resolution |
 |----------|------------|
-| Agent count | 3 agent files; Enrichment Agent has 2 internal phases |
-| Qualification approach | Numerical rubric (4 criteria × 10) → weighted total → High/Medium/Low label |
-| Dashboard layout | Summary metrics → filterable table → expandable detail cards |
-| Contact info | Null in prototype; stubs point to Clay/LinkedIn for production |
-| Competitor handling | Flag with `competitor_flag: true`, include in leads with note |
-
-### Testing Individual Agents
-
-Each agent file can be run standalone for testing:
-
-```bash
-python agents/research_agent.py
-python agents/enrichment_agent.py
-python agents/outreach_agent.py
-```
-
-Integration stubs also have test harnesses:
-
-```bash
-python integrations/clay_stub.py
-python integrations/linkedin_stub.py
-```
+| Primary discovery mechanism | ICP similarity search (Exa `findSimilar` seeded from reference URLs) — NOT event attendee lists |
+| Events/conferences | Contextual enrichment only (Phase C) — not primary lead source |
+| Company extraction | Claude parses Exa results — NOT URL domain extraction |
+| Contact discovery | Phase B fallback chain; companies kept even with no named contact |
+| Industry engagement | 3-tier model (confirmed/historical/inferred); always populated, never null |
+| Agent count | 3 agents; Enrichment Agent has 4 internal phases |
+| Data storage | Supabase Postgres (primary) + JSON backup |
+| Dashboard | Next.js 14 App Router on Vercel; reads/writes Supabase |
+| Competitor handling | `competitor_flag: true` on Avery Dennison / 3M; included with note |
 
 ---
 
-## Deployment (Streamlit Community Cloud)
-
-1. Push this repo to GitHub
-2. Go to [share.streamlit.io](https://share.streamlit.io/)
-3. Connect your GitHub account
-4. Deploy from `dashboard/app.py`
-5. Add environment variables in Streamlit dashboard settings (if needed for live API calls)
-
-The dashboard reads from `data/leads.json` — commit a sample file or run the pipeline locally and commit the results.
-
----
-
-## Contributing
-
-This is a case study prototype. For production use cases or contributions, please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Implement changes with tests
-4. Submit a pull request with detailed description
-
----
-
-## License
-
-MIT License — See LICENSE file for details
-
----
-
-## Contact & Support
-
-For questions, issues, or feedback:
-- Open an issue on GitHub
-- Contact: [your-email@example.com]
-
----
-
-**Built with Claude Code by Anthropic**
-
-*This project demonstrates practical AI agent architecture for B2B lead generation — autonomous, scalable, and production-ready.*
+*Built as a case study prototype demonstrating practical AI agent architecture for B2B lead generation.*
