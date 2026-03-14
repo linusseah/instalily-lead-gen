@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { X, Copy, ExternalLink, Check, ChevronDown, ChevronUp } from "lucide-react"
+import { X, Copy, ExternalLink, Check, ChevronDown, ChevronUp, Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -25,6 +25,7 @@ interface LeadDetailPanelProps {
 export function LeadDetailPanel({ lead, isOpen, onClose, onUpdate }: LeadDetailPanelProps) {
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [showScoreBreakdown, setShowScoreBreakdown] = useState(true)
+  const [showEngagementInfo, setShowEngagementInfo] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [hasAnimated, setHasAnimated] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -284,7 +285,43 @@ export function LeadDetailPanel({ lead, isOpen, onClose, onUpdate }: LeadDetailP
 
           {/* Industry Engagement */}
           <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Industry Engagement</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-900">Industry Engagement</h3>
+              <button
+                onClick={() => setShowEngagementInfo(!showEngagementInfo)}
+                className="text-gray-500 hover:text-gray-700"
+                title="Learn about confidence levels"
+              >
+                <Info className="w-4 h-4" />
+              </button>
+            </div>
+
+            {showEngagementInfo && (
+              <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-md text-xs space-y-2">
+                <p className="font-semibold text-blue-900">Confidence Levels Explained:</p>
+                <div className="space-y-1">
+                  <div className="flex items-start gap-2">
+                    <Badge className="bg-green-100 text-green-800 border-green-200 text-xs">
+                      Confirmed
+                    </Badge>
+                    <span className="text-blue-800">Verified 2026 event attendance (exhibitor lists, press releases)</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-xs">
+                      Historical
+                    </Badge>
+                    <span className="text-blue-800">Documented 2024/2025 past attendance at industry events</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <Badge className="bg-gray-100 text-gray-600 border-gray-200 text-xs">
+                      Inferred
+                    </Badge>
+                    <span className="text-blue-800">Likely participant based on ICP fit and industry profile</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {lead.industry_engagement ? (
               <div className="space-y-2">
                 <Badge
