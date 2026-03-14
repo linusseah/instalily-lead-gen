@@ -85,8 +85,7 @@ RUBRIC_WEIGHTS = {
     "event_engagement": 0.20
 }
 
-# Competitor list
-COMPETITORS = ["Avery Dennison", "3M"]
+# Competitor detection disabled - all companies treated as potential leads
 
 
 def run_enrichment(research_results: Dict) -> List[Dict]:
@@ -152,12 +151,8 @@ def run_enrichment(research_results: Dict) -> List[Dict]:
             print("  Phase C: Scoring against ICP rubric...")
             qualification = qualify_company(client, enriched_company, model=model)
 
-            # Check for competitor flag
-            competitor_flag = is_competitor(enriched_company['name'])
-            enriched_company['competitor_flag'] = competitor_flag
-
-            if competitor_flag:
-                print(f"  ⚠ Competitor detected: {enriched_company['name']}")
+            # All companies treated as potential leads
+            enriched_company['competitor_flag'] = False
 
             # Build complete lead object
             lead = build_lead_object(
@@ -624,9 +619,7 @@ Return ONLY JSON:
         }
 
 
-def is_competitor(company_name: str) -> bool:
-    """Check if company is a known competitor."""
-    return any(comp.lower() in company_name.lower() for comp in COMPETITORS)
+# Competitor detection removed - feature disabled
 
 
 def build_lead_object(

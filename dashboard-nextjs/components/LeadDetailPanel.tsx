@@ -194,11 +194,6 @@ export function LeadDetailPanel({ lead, isOpen, onClose, onUpdate }: LeadDetailP
                 <div className="text-xs text-gray-500">Company Name</div>
                 <div className="text-sm text-gray-900 font-medium">
                   {lead.company.name}
-                  {lead.company.competitor_flag && (
-                    <Badge className="ml-2 bg-orange-100 text-orange-800 border-orange-200">
-                      Competitor
-                    </Badge>
-                  )}
                 </div>
               </div>
               {lead.company.website && (
