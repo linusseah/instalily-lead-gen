@@ -32,7 +32,10 @@ export async function GET() {
       id: row.id,
       company: row.company_data,
       decision_maker: row.decision_maker_data,
-      event: row.event_data,
+      industry_engagement: row.industry_engagement && row.engagement_confidence ? {
+        summary: row.industry_engagement,
+        confidence: row.engagement_confidence
+      } : null,
       qualification: row.qualification_data,
       outreach: row.outreach_data,
       crm_data: {
