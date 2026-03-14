@@ -4,7 +4,8 @@ A professional, production-ready React/Next.js dashboard for managing AI-generat
 
 ## Features
 
-- **Real-time Lead Management**: View, filter, and manage leads from the Python pipeline
+- **Real-time Lead Management**: View, filter, and manage leads from Supabase database
+- **Industry Engagement Tracking**: 3-tier confidence model (Confirmed, Historical, Inferred)
 - **Inline Editing**: Update lead status and owner directly in the table
 - **Sliding Detail Panel**: Comprehensive lead view with contact info, company details, and outreach messages
 - **Advanced Filtering**: Filter by lead owner, status, and fit score
